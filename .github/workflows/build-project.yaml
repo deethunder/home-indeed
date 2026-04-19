@@ -214,6 +214,14 @@ jobs:
         with:
           target: x86_64
           config: ${{ needs.check-event.outputs.config }}
+          # Additional cmake flags for testing
+          cmakeArgs: "-DBUILD_TESTS=ON"
+
+      - name: Run Tests 🧪
+        shell: bash
+        run: |
+          cd build_x86_64
+          ctest --output-on-failure
 
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
