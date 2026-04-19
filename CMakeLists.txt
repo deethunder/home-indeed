@@ -95,10 +95,13 @@ if(BUILD_TESTS)
 
     add_executable(homein-tests 
         tests/test-resampler.cpp
+        tests/test-database.cpp
         src/audio/homein-audio.cpp
+        src/database/homein-db.cpp
+        src/database/homein-lyrics-db.cpp
     )
-    target_link_libraries(homein-tests PRIVATE gtest_main libobs Qt6::Core)
-    target_include_directories(homein-tests PRIVATE src/audio src)
+    target_link_libraries(homein-tests PRIVATE gtest_main libobs Qt6::Core Qt6::Network)
+    target_include_directories(homein-tests PRIVATE src/audio src/database src)
     
     add_test(NAME HomeInAudioTests COMMAND homein-tests)
 endif()
