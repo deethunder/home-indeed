@@ -8,6 +8,7 @@
 !/data
 !/src
 !/tools
+!/tests
 !/vendor
 !.clang-format
 !.gersemirc

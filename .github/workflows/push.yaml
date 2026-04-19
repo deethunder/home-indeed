@@ -5,10 +5,10 @@ on:
     branches:
       - master
       - main
-      - develop
       - 'release/**'
     tags:
       - '*'
+  workflow_dispatch: # Allows manual trigger from the "Actions" tab
 permissions:
   contents: write
 jobs:
