@@ -41,6 +41,8 @@ public:
     Q_INVOKABLE void ShowBibleSuggestion(const std::string& book, int chapter, int verse, const std::string& text);
     Q_INVOKABLE void ShowLyricsResults(const std::vector<SongLyric>& results);
 
+    enum class FocusMode { Auto, Bible, Songs };
+
 private slots:
     void AddToQueue();
     void RemoveFromQueue();
@@ -49,16 +51,30 @@ private slots:
     void MoveQueueDown();
     void UpdateOverlayFromSelection();
     void UpdateAudioTest();
+    void OnToggleMic();
+    void OnTogglePause();
+    void SetFocusMode(FocusMode mode);
 
 private:
     void SetupUI();
     void SetupToolbar(QVBoxLayout *main_layout);
     void SetupSettingsView(QWidget *parent);
     void StartTranscription();
+    void StopTranscription();
     void CheckForReferences(const std::string& text);
     void PerformFuzzySearch(const std::string& text);
     void SearchLyrics(const std::string& query);
     void CheckForLyrics(const std::string& text);
+    void PopulateTranslations();
+
+    FocusMode current_focus = FocusMode::Auto;
+    bool mic_active = false;
+    bool mic_paused = false;
+
+    // UI Buttons for Mic Hub
+    QPushButton *mic_btn;
+    QPushButton *pause_btn;
+    QComboBox *focus_combo;
 
     // View stack for swapping between Tabs and Settings
     QStackedWidget *view_stack;

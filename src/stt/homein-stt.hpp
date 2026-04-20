@@ -37,13 +37,15 @@ public:
     void Start(TranscriptCallback callback);
 
     /**
-     * @brief Signals the background thread to stop and joins it.
+     * @brief Stops the STT engine.
      */
     void Stop();
 
     /**
-     * @brief Checks if the transcription thread is currently active.
+     * @brief Pauses context processing (mic button).
      */
+    void SetPaused(bool paused) { is_paused = paused; }
+    bool IsPaused() const { return is_paused; }
     bool IsRunning() const { return running; }
 
 private:
@@ -53,6 +55,7 @@ private:
     struct whisper_context* ctx = nullptr;
     std::thread worker_thread;
     std::atomic<bool> running{false};
+    std::atomic<bool> is_paused{false};
     TranscriptCallback on_transcript;
 
     std::string model_file;

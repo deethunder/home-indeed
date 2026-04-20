@@ -51,6 +51,11 @@ public:
      */
     std::vector<BibleVerse> SearchVerses(const std::string& query, int limit = 5);
 
+    /**
+     * @brief Returns list of available translations in the DB (e.g. "KJV", "NIV").
+     */
+    std::vector<std::string> GetTranslations();
+
 private:
     sqlite3* db = nullptr;
 };

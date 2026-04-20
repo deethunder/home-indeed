@@ -57,25 +57,29 @@ private:
         layout->setContentsMargins(30, 30, 30, 30);
         layout->setSpacing(15);
 
-        // Logo
+        // Header layout with Logo on left
+        QHBoxLayout *header_layout = new QHBoxLayout();
         logoLabel = new QLabel(this);
         QPixmap logo(":/assets/hi-logo.png");
         if (!logo.isNull()) {
-            logoLabel->setPixmap(logo.scaled(120, 120, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            logoLabel->setPixmap(logo.scaled(140, 140, Qt::KeepAspectRatio, Qt::SmoothTransformation));
         }
-        logoLabel->setAlignment(Qt::AlignCenter);
-        layout->addWidget(logoLabel);
+        logoLabel->setFixedWidth(150);
+        logoLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+        header_layout->addWidget(logoLabel);
 
-        // Title
+        QVBoxLayout *title_v_layout = new QVBoxLayout();
         titleLabel = new QLabel("Home Indeed Plugin Setup", this);
-        titleLabel->setStyleSheet("font-size: 20px; font-weight: bold; color: #0078D7;");
-        titleLabel->setAlignment(Qt::AlignCenter);
-        layout->addWidget(titleLabel);
+        titleLabel->setStyleSheet("font-size: 24px; font-weight: bold; color: #0078D7;");
+        title_v_layout->addWidget(titleLabel);
 
         QLabel *subTitle = new QLabel("Powered by Deethunder Nexus", this);
-        subTitle->setAlignment(Qt::AlignCenter);
-        subTitle->setStyleSheet("color: #666; margin-bottom: 10px;");
-        layout->addWidget(subTitle);
+        subTitle->setStyleSheet("color: #666; font-size: 14px;");
+        title_v_layout->addWidget(subTitle);
+        title_v_layout->addStretch();
+        
+        header_layout->addLayout(title_v_layout);
+        layout->addLayout(header_layout);
 
         // Path Selection
         QLabel *pathLabel = new QLabel("OBS Installation Path:", this);
@@ -186,29 +190,67 @@ private:
         // Path variables
         QString binPath = obsPath + "/obs-plugins/64bit";
         QString dataPath = obsPath + "/data/obs-plugins/home-indeed";
+        QString modelPath = dataPath + "/models";
 
         QDir().mkpath(binPath);
         QDir().mkpath(dataPath);
+        QDir().mkpath(modelPath);
 
-        // 1. Copy DLL
+        // 1. Copy DLL & Uninstaller
+        statusLabel->setText("Copying plugin files...");
         QString srcDll = QCoreApplication::applicationDirPath() + "/home-indeed.dll";
-        if (!QFile::copy(srcDll, binPath + "/home-indeed.dll")) {
-            // If exists, try removing first
+        QString srcUninstaller = QCoreApplication::applicationDirPath() + "/Home-Indeed-Uninstaller.exe";
+
+        if (QFile::exists(srcDll)) {
             QFile::remove(binPath + "/home-indeed.dll");
-            if (!QFile::copy(srcDll, binPath + "/home-indeed.dll")) {
-                QMessageBox::critical(this, "Error", "Failed to copy home-indeed.dll. Ensure you have administrator rights.");
-                installButton->setEnabled(true);
-                return;
-            }
+            QFile::copy(srcDll, binPath + "/home-indeed.dll");
+        }
+        
+        if (QFile::exists(srcUninstaller)) {
+            QFile::remove(dataPath + "/Home-Indeed-Uninstaller.exe");
+            QFile::copy(srcUninstaller, dataPath + "/Home-Indeed-Uninstaller.exe");
         }
         progressBar->setValue(40);
 
         // 2. Copy Data Folder
         statusLabel->setText("Copying data files...");
-        QString srcData = QCoreApplication::applicationDirPath() + "/data";
-        if (!copyRecursively(srcData, dataPath)) {
-            QMessageBox::warning(this, "Partial Success", "Plugin copied, but some data files could not be moved.");
+        QString baseDir = QCoreApplication::applicationDirPath();
+        QString srcData = baseDir + "/data";
+        
+        // --- Development Search Logic ---
+        // If not found in current dir, search up to 3 levels up (for build/RelWithDebInfo runs)
+        if (!QDir(srcData).exists()) {
+            QDir parentDir(baseDir);
+            for (int i = 0; i < 3; ++i) {
+                if (parentDir.cdUp()) {
+                    QString candidate = parentDir.absolutePath() + "/data";
+                    if (QDir(candidate).exists()) {
+                        srcData = candidate;
+                        break;
+                    }
+                }
+            }
         }
+        
+        // Verify source data exists
+        if (!QDir(srcData).exists()) {
+             QMessageBox::warning(this, "Setup Warning", 
+                "Source 'data' folder not found. Some features (Bible/STT) may not work until databases are manually added.");
+        } else {
+            QString failedFile;
+            if (!copyRecursively(srcData, dataPath, failedFile)) {
+                QMessageBox::warning(this, "Partial Success", 
+                    QString("Plugin copied, but file '%1' is currently in use or locked.\n\n"
+                            "Please ensure all Bible/SQLite tools and OBS are closed.").arg(failedFile));
+            }
+        }
+        
+        // 3. Special check for Models
+        QDir modelsDir(dataPath + "/models");
+        if (modelsDir.entryList(QStringList() << "*.bin", QDir::Files).isEmpty()) {
+            statusLabel->setText("Models missing - plugin will require manual model download.");
+        }
+
         progressBar->setValue(80);
 
         // 3. Create Shortcuts
@@ -231,6 +273,14 @@ private:
                 std::wstring linkPath = std::wstring(startMenuPath) + L"\\Home Indeed.lnk";
                 std::wstring obsExePath = QDir::toNativeSeparators(obsPath + "/bin/64bit/obs64.exe").toStdWString();
                 createLink(obsExePath.c_str(), linkPath.c_str(), L"Home Indeed - Launch OBS with AI Overlay");
+
+                // Uninstaller shortcut in Start Menu
+                QString smFolder = QString::fromWCharArray(startMenuPath) + "/Home Indeed";
+                QDir().mkpath(smFolder);
+                QString uninstallerDest = dataPath + "/Home-Indeed-Uninstaller.exe";
+                if (QFile::exists(uninstallerDest)) {
+                    QFile::link(uninstallerDest, smFolder + "/Uninstall Home Indeed.lnk");
+                }
             }
         }
 
@@ -245,7 +295,7 @@ private:
         close();
     }
 
-    bool copyRecursively(const QString &srcPath, const QString &dstPath) {
+    bool copyRecursively(const QString &srcPath, const QString &dstPath, QString &failedFile) {
         QDir srcDir(srcPath);
         if (!srcDir.exists()) return false;
         QDir().mkpath(dstPath);
@@ -253,12 +303,27 @@ private:
         foreach (QString file, srcDir.entryList(QDir::Files)) {
             QString srcFile = srcPath + "/" + file;
             QString dstFile = dstPath + "/" + file;
-            QFile::remove(dstFile);
-            if (!QFile::copy(srcFile, dstFile)) return false;
+            
+            // Attempt to remove with retry
+            bool success = false;
+            for (int i = 0; i < 3; ++i) {
+                if (!QFile::exists(dstFile) || QFile::remove(dstFile)) {
+                    if (QFile::copy(srcFile, dstFile)) {
+                        success = true;
+                        break;
+                    }
+                }
+                Sleep(500); // Wait for potential file release
+            }
+            
+            if (!success) {
+                failedFile = file;
+                return false;
+            }
         }
 
         foreach (QString dir, srcDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-            if (!copyRecursively(srcPath + "/" + dir, dstPath + "/" + dir)) return false;
+            if (!copyRecursively(srcPath + "/" + dir, dstPath + "/" + dir, failedFile)) return false;
         }
 
         return true;

@@ -13,26 +13,30 @@
 #include <QGroupBox>
 #include <QFrame>
 #include <QTimer>
+#include <QScrollArea>
 #include "../renderer/homein-renderer.hpp"
 #include "../audio/homein-audio.hpp"
 
 HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMinimumSize(250, 150);
+    
     // Initialize Databases
-    char *db_path = obs_module_file("data/homein-bible.db");
+    char *db_path = obs_module_file("homein-bible.db");
     if (db_path) {
         bible_db.Open(db_path);
         bfree(db_path);
     }
 
-    char *lyrics_db_path = obs_module_file("data/homein-lyrics.db");
+    char *lyrics_db_path = obs_module_file("homein-lyrics.db");
     if (lyrics_db_path) {
         lyrics_engine.Initialize(lyrics_db_path);
         bfree(lyrics_db_path);
     }
 
     SetupUI();
-    StartTranscription();
-
+    PopulateTranslations();
+    
     // Setup Testing Timer
     level_timer = new QTimer(this);
     connect(level_timer, &QTimer::timeout, this, &HomeInDock::UpdateAudioTest);
@@ -63,7 +67,16 @@ void HomeInDock::SetupUI() {
     main_layout->setSpacing(2);
 
     view_stack = new QStackedWidget(this);
-    main_layout->addWidget(view_stack);
+    
+    // Wrap pages in Scroll Areas for responsiveness
+    QScrollArea *scroll_area = new QScrollArea(this);
+    scroll_area->setWidgetResizable(true);
+    scroll_area->setFrameShape(QFrame::NoFrame);
+    scroll_area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll_area->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+    main_layout->addWidget(scroll_area);
+    scroll_area->setWidget(view_stack);
 
     // --- Page 1: Navigation Tabs ---
     tabs_page = new QWidget();
@@ -146,7 +159,12 @@ void HomeInDock::SetupUI() {
     SetupToolbar(main_layout);
 
     // --- Connections ---
-    connect(search_btn, &QPushButton::clicked, [this]() { CheckForReferences(bible_search_input->text().toStdString()); });
+    connect(search_btn, &QPushButton::clicked, [this]() { 
+        std::string text = bible_search_input->text().toStdString();
+        auto refs = ref_parser.Parse(text);
+        if (refs.empty()) PerformFuzzySearch(text);
+        else CheckForReferences(text);
+    });
     connect(l_search_btn, &QPushButton::clicked, [this]() { SearchLyrics(lyrics_search_input->text().toStdString()); });
     connect(push_btn, &QPushButton::clicked, [this]() {
         HomeInRenderer* r = GetActiveRenderer();
@@ -168,34 +186,53 @@ void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
     toolbar->setFrameShape(QFrame::StyledPanel);
     toolbar->setStyleSheet("QFrame { background-color: #2c2c2e; border-top: 1px solid #444; } QPushButton { border: none; padding: 5px; color: #ccc; font-size: 16px; } QPushButton:hover { color: white; background-color: #3a3a3c; }");
     QHBoxLayout *t_layout = new QHBoxLayout(toolbar);
-    t_layout->setContentsMargins(2, 2, 2, 2);
-    t_layout->setSpacing(5);
+    t_layout->setContentsMargins(5, 2, 5, 2);
+    t_layout->setSpacing(8);
 
-    QPushButton *add_btn = new QPushButton("+", this);
-    add_btn->setToolTip("Queue current scripture/text");
-    QPushButton *del_btn = new QPushButton("🗑️", this);
-    del_btn->setToolTip("Discard selected queued item");
+    // Mic Hub
+    mic_btn = new QPushButton("🔴 LISTEN", this);
+    mic_btn->setToolTip("Start Artificial Intelligence Listening");
+    mic_btn->setStyleSheet("color: #ff4444; font-weight: bold; border: 1px solid #444; border-radius: 4px; padding-left: 10px; padding-right: 10px;");
+    
+    pause_btn = new QPushButton("⏸️", this);
+    pause_btn->setToolTip("Pause Listening");
+    pause_btn->setEnabled(false);
+
+    // Focus Hub
+    focus_combo = new QComboBox(this);
+    focus_combo->addItem("🎯 Auto", (int)FocusMode::Auto);
+    focus_combo->addItem("📖 Bible", (int)FocusMode::Bible);
+    focus_combo->addItem("🎵 Songs", (int)FocusMode::Songs);
+    focus_combo->setStyleSheet("background: #1a1a1a; color: #aaa; border: 1px solid #444;");
+
     QPushButton *gear_btn = new QPushButton("⚙️", this);
     gear_btn->setToolTip("Settings");
-    QPushButton *up_btn = new QPushButton("▲", this);
-    QPushButton *down_btn = new QPushButton("▼", this);
 
+    QPushButton *add_btn = new QPushButton("+", this);
+    add_btn->setToolTip("Queue selection");
+    QPushButton *del_btn = new QPushButton("🗑️", this);
+
+    t_layout->addWidget(mic_btn);
+    t_layout->addWidget(pause_btn);
+    t_layout->addSpacing(10);
+    t_layout->addWidget(new QLabel("Focus:", this));
+    t_layout->addWidget(focus_combo);
+    t_layout->addStretch();
     t_layout->addWidget(add_btn);
     t_layout->addWidget(del_btn);
-    t_layout->addSpacing(10);
     t_layout->addWidget(gear_btn);
-    t_layout->addStretch();
-    t_layout->addWidget(up_btn);
-    t_layout->addWidget(down_btn);
 
     main_layout->addWidget(toolbar);
 
-    // Toolbar connections
+    // Connections
+    connect(mic_btn, &QPushButton::clicked, this, &HomeInDock::OnToggleMic);
+    connect(pause_btn, &QPushButton::clicked, this, &HomeInDock::OnTogglePause);
+    connect(focus_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
+        current_focus = (FocusMode)focus_combo->itemData(index).toInt();
+    });
     connect(add_btn, &QPushButton::clicked, this, &HomeInDock::AddToQueue);
     connect(del_btn, &QPushButton::clicked, this, &HomeInDock::RemoveFromQueue);
     connect(gear_btn, &QPushButton::clicked, this, &HomeInDock::ToggleSettings);
-    connect(up_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueUp);
-    connect(down_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueDown);
 }
 
 void HomeInDock::SetupSettingsView(QWidget *parent) {
@@ -342,14 +379,57 @@ void HomeInDock::UpdateAudioTest() {
     }
 }
 
+void HomeInDock::OnToggleMic() {
+    if (!mic_active) {
+        StartTranscription();
+        mic_active = true;
+        mic_btn->setText("⬛ STOP");
+        mic_btn->setStyleSheet("color: white; background-color: #ff4444; font-weight: bold; padding: 5px;");
+        pause_btn->setEnabled(true);
+    } else {
+        StopTranscription();
+        mic_active = false;
+        mic_btn->setText("🔴 LISTEN");
+        mic_btn->setStyleSheet("color: #ff4444; font-weight: bold; border: 1px solid #444; padding: 5px;");
+        pause_btn->setEnabled(false);
+        mic_paused = false;
+        pause_btn->setText("⏸️");
+    }
+}
+
+void HomeInDock::OnTogglePause() {
+    mic_paused = !mic_paused;
+    stt_engine.SetPaused(mic_paused);
+    pause_btn->setText(mic_paused ? "▶️ RESUME" : "⏸️ PAUSE");
+    pause_btn->setStyleSheet(mic_paused ? "color: #ffaa00; font-weight: bold;" : "");
+}
+
 void HomeInDock::StartTranscription() {
     char *model_path = obs_module_file("models/ggml-tiny.en.bin");
     if (model_path && stt_engine.Initialize(model_path)) {
         stt_engine.Start([this](const std::string& text, bool is_partial) {
             QMetaObject::invokeMethod(this, "AppendTranscript", Qt::QueuedConnection, Q_ARG(std::string, text));
         });
+    } else {
+        QMessageBox::warning(this, "STT Error", "Could not load the AI model (ggml-tiny.en.bin). Please ensure the models folder was copied correctly.");
     }
     if (model_path) bfree(model_path);
+}
+
+void HomeInDock::StopTranscription() {
+    stt_engine.Stop();
+    transcript_view->append("\n--- Listening Session Stopped ---");
+}
+
+void HomeInDock::PopulateTranslations() {
+    std::vector<std::string> versions = bible_db.GetTranslations();
+    bible_version_combo->clear();
+    for (const auto& v : versions) {
+        bible_version_combo->addItem(QString::fromStdString(v));
+    }
+    // Set default to KJV if available
+    int idx = bible_version_combo->findText("KJV");
+    if (idx >= 0) bible_version_combo->setCurrentIndex(idx);
 }
 
 void HomeInDock::AppendTranscript(const std::string& text) {
@@ -366,7 +446,12 @@ void HomeInDock::AppendTranscript(const std::string& text) {
     CheckForLyrics(text);
 }
 
+void HomeInDock::SetFocusMode(FocusMode mode) {
+    current_focus = mode;
+}
+
 void HomeInDock::CheckForLyrics(const std::string& text) {
+    if (current_focus == FocusMode::Bible) return; // Completely skip if focused on Bible
     if (text.length() < 15) return;
     lyrics_engine.Search(text, false, [this](const std::vector<SongLyric>& results) {
         if (!results.empty()) QMetaObject::invokeMethod(this, "ShowLyricsResults", Qt::QueuedConnection, Q_ARG(std::vector<SongLyric>, results));
@@ -374,11 +459,14 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
 }
 
 void HomeInDock::CheckForReferences(const std::string& text) {
+    if (current_focus == FocusMode::Songs) return; // Completely skip if focused on Songs
     auto refs = ref_parser.Parse(text);
     bool found_reference = false;
+    std::string version = bible_version_combo->currentText().toStdString();
+
     for (const auto& ref : refs) {
         BibleVerse verse;
-        if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start, "KJV", verse)) {
+        if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start, version, verse)) {
             ShowBibleSuggestion(verse.book_name, verse.chapter, verse.verse, verse.text);
             found_reference = true;
         }

@@ -78,8 +78,32 @@ function Build {
     # --- Clean Slate (v1.5) ---
     $BuildDir = "$ProjectRoot/build_${Target}"
     if (Test-Path $BuildDir) {
+        Write-Host "  =>   Checking for running OBS instances..." -ForegroundColor Yellow
+        $obsProcess = Get-Process -Name obs64 -ErrorAction SilentlyContinue
+        if ($obsProcess) {
+            Write-Error "OBS Studio is currently running. Please close OBS before building to release file locks on the plugin DLLs."
+            exit 2
+        }
+
         Write-Host "  =>   Cleaning old build files..." -ForegroundColor Yellow
-        Remove-Item -Recurse -Force $BuildDir
+        
+        # Retry logic for directory removal (handles transient locks)
+        $retryCount = 0
+        $maxRetries = 3
+        while ($retryCount -lt $maxRetries) {
+            try {
+                Remove-Item -Recurse -Force $BuildDir
+                break
+            } catch {
+                $retryCount++
+                if ($retryCount -eq $maxRetries) {
+                    Write-Error "Could not clean build directory after $maxRetries attempts. The directory or a file within it is locked by another process: $($_.Exception.Message)"
+                    exit 2
+                }
+                Write-Warning "Build directory is locked. Retrying in 1 second... (Attempt $retryCount/$maxRetries)"
+                Start-Sleep -Seconds 1
+            }
+        }
     }
 
     $CmakeArgs = @('--preset', "windows-ci-${Target}")

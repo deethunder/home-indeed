@@ -2,10 +2,15 @@
 #include <obs-module.h>
 #include <memory>
 
-static HomeInAudioHandler* g_audio_handler = nullptr;
+static std::unique_ptr<HomeInAudioHandler> g_audio_handler = nullptr;
+static std::mutex g_handler_mutex;
 
 HomeInAudioHandler* GetAudioHandler() {
-    return g_audio_handler;
+    std::lock_guard<std::mutex> lock(g_handler_mutex);
+    if (!g_audio_handler) {
+        g_audio_handler = std::make_unique<HomeInAudioHandler>();
+    }
+    return g_audio_handler.get();
 }
 
 // OBS Filter Callbacks
@@ -27,16 +32,13 @@ static void* homein_audio_filter_create(obs_data_t* settings, obs_source_t* cont
     UNUSED_PARAMETER(context);
     
     // We only want one active tap for simplicity in v1.0
-    if (!g_audio_handler) {
-        g_audio_handler = new HomeInAudioHandler();
-    }
-    return g_audio_handler;
+    return GetAudioHandler();
 }
 
 static void homein_audio_filter_destroy(void* data) {
     // Note: We keep the global handler alive or manage it carefully
     // For now, let's just null it out if this filter is destroyed
-    if (data == g_audio_handler) {
+    if (data == g_audio_handler.get()) {
         // In a more robust system, we'd delete here, but many instances might exist
     }
 }

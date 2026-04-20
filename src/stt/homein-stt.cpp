@@ -71,8 +71,12 @@ void HomeInSTTEngine::RunLoop() {
     wparams.single_segment = true; // Better for real-time live captioning
 
     while (running) {
+        if (is_paused) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
+
         // Collect samples from the buffer
-        // For real-time feel, we want to process in small chunks (e.g. 2-3 seconds)
         if (audio->GetBufferedCount() < WHISPER_SAMPLE_RATE * 2) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;

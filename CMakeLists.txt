@@ -135,4 +135,16 @@ if(WIN32 AND ENABLE_QT)
     
     # Add dependency to ensure the plugin is built before the installer (optional but good practice)
     add_dependencies(home-indeed-installer ${CMAKE_PROJECT_NAME})
+
+    # --- Uninstaller (Phase 5) ---
+    set(UNINSTALLER_SOURCES
+        src/installer/homein-uninstaller.cpp
+    )
+    add_executable(home-indeed-uninstaller WIN32 ${UNINSTALLER_SOURCES})
+    target_link_libraries(home-indeed-uninstaller PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui)
+    set_target_properties(home-indeed-uninstaller PROPERTIES 
+        AUTOMOC ON 
+        OUTPUT_NAME "Home-Indeed-Uninstaller"
+        LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\""
+    )
 endif()
