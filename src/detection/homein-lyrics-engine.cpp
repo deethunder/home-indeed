@@ -79,5 +79,12 @@ void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query, SearchCallbac
     }
 
     reply->deleteLater();
+    
+    // Rebuild FTS index so cached songs are findable locally next time
+    if (!results.empty()) {
+        local_db.RebuildFTS();
+        blog(LOG_INFO, "HomeIndeed: Cached %d songs from LRCLIB for offline use", (int)results.size());
+    }
+    
     callback(results);
 }

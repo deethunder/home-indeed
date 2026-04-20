@@ -1,5 +1,36 @@
 #include "homein-db.hpp"
 #include <obs-module.h>
+#include <sstream>
+
+// Standard Bible book names in canonical order (Book 1 = Genesis ... Book 66 = Revelation)
+static const char* BIBLE_BOOK_NAMES[] = {
+    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
+    "Joshua", "Judges", "Ruth", "1 Samuel", "2 Samuel",
+    "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles", "Ezra",
+    "Nehemiah", "Esther", "Job", "Psalms", "Proverbs",
+    "Ecclesiastes", "Song of Solomon", "Isaiah", "Jeremiah", "Lamentations",
+    "Ezekiel", "Daniel", "Hosea", "Joel", "Amos",
+    "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk",
+    "Zephaniah", "Haggai", "Zechariah", "Malachi",
+    "Matthew", "Mark", "Luke", "John", "Acts",
+    "Romans", "1 Corinthians", "2 Corinthians", "Galatians", "Ephesians",
+    "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians",
+    "1 Timothy", "2 Timothy", "Titus", "Philemon", "Hebrews",
+    "James", "1 Peter", "2 Peter", "1 John", "2 John",
+    "3 John", "Jude", "Revelation"
+};
+
+static const char* BIBLE_BOOK_ABBRS[] = {
+    "Gen", "Exo", "Lev", "Num", "Deut", "Josh", "Judg", "Ruth",
+    "1Sam", "2Sam", "1Kgs", "2Kgs", "1Chr", "2Chr", "Ezra", "Neh",
+    "Est", "Job", "Psa", "Prov", "Eccl", "Song", "Isa", "Jer",
+    "Lam", "Ezek", "Dan", "Hos", "Joel", "Amos", "Obad", "Jonah",
+    "Mic", "Nah", "Hab", "Zeph", "Hag", "Zech", "Mal",
+    "Matt", "Mark", "Luke", "John", "Acts", "Rom", "1Cor", "2Cor",
+    "Gal", "Eph", "Phil", "Col", "1Thess", "2Thess", "1Tim", "2Tim",
+    "Titus", "Phlm", "Heb", "Jas", "1Pet", "2Pet", "1John", "2John",
+    "3John", "Jude", "Rev"
+};
 
 HomeInDB::HomeInDB() {}
 
@@ -10,13 +41,100 @@ HomeInDB::~HomeInDB() {
 bool HomeInDB::Open(const std::string& db_path) {
     if (db) Close();
     
+    blog(LOG_INFO, "HomeIndeed: Opening Bible DB at: %s", db_path.c_str());
     int rc = sqlite3_open(db_path.c_str(), &db);
     if (rc != SQLITE_OK) {
-        blog(LOG_ERROR, "Failed to open Bible database: %s", sqlite3_errmsg(db));
+        blog(LOG_ERROR, "HomeIndeed: Failed to open Bible database: %s", sqlite3_errmsg(db));
         db = nullptr;
         return false;
     }
+
+    ValidateDatabase();
+    RunMigration();
     return true;
+}
+
+void HomeInDB::ValidateDatabase() {
+    if (!db) return;
+
+    blog(LOG_INFO, "=== HomeIndeed Bible DB Diagnostic ===");
+    
+    // 1. Check Tables
+    const char* sql_tables = "SELECT name FROM sqlite_master WHERE type='table';";
+    sqlite3_stmt* stmt;
+    std::vector<std::string> tables;
+    if (sqlite3_prepare_v2(db, sql_tables, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            tables.push_back(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    std::stringstream ss;
+    ss << "Tables found: ";
+    for (const auto& t : tables) ss << t << " ";
+    blog(LOG_INFO, "HomeIndeed: %s", ss.str().c_str());
+
+    // 2. Check Row Counts
+    auto get_count = [&](const char* table) -> int {
+        int count = 0;
+        char query[128];
+        snprintf(query, sizeof(query), "SELECT COUNT(*) FROM %s", table);
+        if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) count = sqlite3_column_int(stmt, 0);
+        }
+        sqlite3_finalize(stmt);
+        return count;
+    };
+
+    for (const auto& t : tables) {
+        blog(LOG_INFO, "HomeIndeed: Table '%s' has %d rows", t.c_str(), get_count(t.c_str()));
+    }
+
+    // 3. Log Sample Data for debugging
+    if (std::find(tables.begin(), tables.end(), "translations") != tables.end()) {
+        const char* sql_trans = "SELECT id, abbreviation FROM translations LIMIT 5;";
+        if (sqlite3_prepare_v2(db, sql_trans, -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                blog(LOG_INFO, "HomeIndeed: Translation: ID=%d, Abbr=%s", 
+                    sqlite3_column_int(stmt, 0),
+                    reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+    blog(LOG_INFO, "=== End Diagnostic ===");
+}
+
+void HomeInDB::RunMigration() {
+    if (!db) return;
+    
+    sqlite3_stmt* check;
+    if (sqlite3_prepare_v2(db, "SELECT name FROM books WHERE id=1", -1, &check, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(check) == SQLITE_ROW) {
+            const char* raw_name = reinterpret_cast<const char*>(sqlite3_column_text(check, 0));
+            std::string name = raw_name ? raw_name : "";
+            sqlite3_finalize(check);
+            
+            if (name.find("Book ") == 0 || name.empty()) {
+                blog(LOG_INFO, "HomeIndeed: Migrating Bible book names...");
+                sqlite3_stmt* update;
+                if (sqlite3_prepare_v2(db, "UPDATE books SET name=?, abbreviation=? WHERE id=?", -1, &update, nullptr) == SQLITE_OK) {
+                    for (int i = 0; i < 66; i++) {
+                        sqlite3_bind_text(update, 1, BIBLE_BOOK_NAMES[i], -1, SQLITE_STATIC);
+                        sqlite3_bind_text(update, 2, BIBLE_BOOK_ABBRS[i], -1, SQLITE_STATIC);
+                        sqlite3_bind_int(update, 3, i + 1);
+                        sqlite3_step(update);
+                        sqlite3_reset(update);
+                    }
+                    sqlite3_finalize(update);
+                    blog(LOG_INFO, "HomeIndeed: Bible migration complete.");
+                }
+            }
+        } else {
+            sqlite3_finalize(check);
+        }
+    }
 }
 
 void HomeInDB::Close() {
@@ -34,7 +152,10 @@ bool HomeInDB::GetVerse(const std::string& book_name, int chapter, int verse, co
         "FROM verses v "
         "JOIN books b ON v.book_id = b.id "
         "JOIN translations t ON v.translation_id = t.id "
-        "WHERE b.name LIKE ? AND v.chapter = ? AND v.verse = ? AND t.abbreviation = ? "
+        "WHERE (b.name LIKE ? OR b.abbreviation LIKE ?) "
+        "AND CAST(v.chapter AS INTEGER) = ? "
+        "AND CAST(v.verse AS INTEGER) = ? "
+        "AND t.abbreviation LIKE ? "
         "LIMIT 1";
 
     sqlite3_stmt* stmt;
@@ -43,16 +164,23 @@ bool HomeInDB::GetVerse(const std::string& book_name, int chapter, int verse, co
     }
 
     std::string book_pattern = "%" + book_name + "%";
+    std::string trans_pattern = "%" + translation_abbr + "%";
+
     sqlite3_bind_text(stmt, 1, book_pattern.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 2, chapter);
-    sqlite3_bind_int(stmt, 3, verse);
-    sqlite3_bind_text(stmt, 4, translation_abbr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, book_pattern.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, chapter);
+    sqlite3_bind_int(stmt, 4, verse);
+    sqlite3_bind_text(stmt, 5, trans_pattern.c_str(), -1, SQLITE_TRANSIENT);
 
     bool found = false;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        out_verse.text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        out_verse.book_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-        out_verse.translation_abbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        const char* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const char* bname = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        const char* tabbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+        
+        out_verse.text = text ? text : "";
+        out_verse.book_name = bname ? bname : "";
+        out_verse.translation_abbr = tabbr ? tabbr : "";
         out_verse.translation_id = sqlite3_column_int(stmt, 3);
         out_verse.book_id = sqlite3_column_int(stmt, 4);
         out_verse.chapter = chapter;
@@ -66,7 +194,12 @@ bool HomeInDB::GetVerse(const std::string& book_name, int chapter, int verse, co
 
 int HomeInDB::GetChapterCount(const std::string& book_name) {
     if (!db) return 0;
-    const char* sql = "SELECT MAX(version_chapter) FROM verses v JOIN books b ON v.book_id = b.id WHERE b.name LIKE ? OR b.abbreviation LIKE ?;";
+    
+    const char* sql = 
+        "SELECT MAX(CAST(v.chapter AS INTEGER)) FROM verses v "
+        "JOIN books b ON v.book_id = b.id "
+        "WHERE b.name LIKE ? OR b.abbreviation LIKE ?";
+
     sqlite3_stmt* stmt;
     int count = 0;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
@@ -76,8 +209,8 @@ int HomeInDB::GetChapterCount(const std::string& book_name) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             count = sqlite3_column_int(stmt, 0);
         }
+        sqlite3_finalize(stmt);
     }
-    sqlite3_finalize(stmt);
     return count;
 }
 
@@ -85,93 +218,36 @@ std::vector<BibleVerse> HomeInDB::SearchVerses(const std::string& query, int lim
     std::vector<BibleVerse> results;
     if (!db) return results;
 
-    // 1. Try to match Book Name first (e.g. "gen" -> Genesis 1:1)
-    const char* book_sql = 
-        "SELECT v.text, b.name, t.abbreviation, v.chapter, v.verse "
+    // We skip MATCH because we can't be sure the user has a VIRTUAL FTS table named 'verses'
+    // Instead, we use LIKE for maximum compatibility across all SQLite databases.
+    const char* sql = 
+        "SELECT v.text, b.name, t.abbreviation, CAST(v.chapter AS INTEGER), CAST(v.verse AS INTEGER) "
         "FROM verses v "
         "JOIN books b ON v.book_id = b.id "
         "JOIN translations t ON v.translation_id = t.id "
-        "WHERE (b.name LIKE ? OR b.abbreviation LIKE ?) AND v.chapter = 1 AND v.verse = 1 "
-        "LIMIT 1";
+        "WHERE v.text LIKE ? "
+        "LIMIT ?";
 
     sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(db, book_sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        std::string pattern = query + "%";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        std::string pattern = "%" + query + "%";
         sqlite3_bind_text(stmt, 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, pattern.c_str(), -1, SQLITE_TRANSIENT);
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
+        sqlite3_bind_int(stmt, 2, limit);
+
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
             BibleVerse v;
-            v.text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            v.book_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-            v.translation_abbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            const char* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            const char* bname = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            const char* tabbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+
+            v.text = text ? text : "";
+            v.book_name = bname ? bname : "";
+            v.translation_abbr = tabbr ? tabbr : "";
             v.chapter = sqlite3_column_int(stmt, 3);
             v.verse = sqlite3_column_int(stmt, 4);
             results.push_back(v);
         }
         sqlite3_finalize(stmt);
-    }
-
-    // 2. Optimized FTS5 Search for full text
-    const char* fts_sql = 
-        "SELECT v.text, b.name, t.abbreviation, v.chapter, v.verse "
-        "FROM verses v "
-        "JOIN books b ON v.book_id = b.id "
-        "JOIN translations t ON v.translation_id = t.id "
-        "WHERE verses MATCH ? "
-        "LIMIT ?";
-
-    if (sqlite3_prepare_v2(db, fts_sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        // If query has multiple words, wrap in quotes for phrase search
-        std::string formatted_query = query;
-        if (query.find(' ') != std::string::npos && query.front() != '"') {
-            formatted_query = "\"" + query + "\"";
-        }
-
-        sqlite3_bind_text(stmt, 1, formatted_query.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 2, limit - (int)results.size());
-
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            BibleVerse v;
-            v.text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            v.book_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-            v.translation_abbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-            v.chapter = sqlite3_column_int(stmt, 3);
-            v.verse = sqlite3_column_int(stmt, 4);
-            
-            // Avoid duplicates if book match already found it
-            bool duplicate = false;
-            for (const auto& r : results) if (r.book_name == v.book_name && r.chapter == v.chapter && r.verse == v.verse) { duplicate = true; break; }
-            if (!duplicate) results.push_back(v);
-        }
-        sqlite3_finalize(stmt);
-    }
-
-    // 3. Last Resort: LIKE search for partial word matches
-    if (results.empty()) {
-        const char* fallback_sql = 
-            "SELECT v.text, b.name, t.abbreviation, v.chapter, v.verse "
-            "FROM verses v "
-            "JOIN books b ON v.book_id = b.id "
-            "JOIN translations t ON v.translation_id = t.id "
-            "WHERE v.text LIKE ? "
-            "LIMIT ?";
-        
-        if (sqlite3_prepare_v2(db, fallback_sql, -1, &stmt, nullptr) == SQLITE_OK) {
-            std::string pattern = "%" + query + "%";
-            sqlite3_bind_text(stmt, 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(stmt, 2, limit);
-
-            while (sqlite3_step(stmt) == SQLITE_ROW) {
-                BibleVerse v;
-                v.text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-                v.book_name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-                v.translation_abbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-                v.chapter = sqlite3_column_int(stmt, 3);
-                v.verse = sqlite3_column_int(stmt, 4);
-                results.push_back(v);
-            }
-            sqlite3_finalize(stmt);
-        }
     }
 
     return results;
@@ -185,9 +261,10 @@ std::vector<std::string> HomeInDB::GetTranslations() {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            results.push_back(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+            const char* abbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            if (abbr) results.push_back(abbr);
         }
+        sqlite3_finalize(stmt);
     }
-    sqlite3_finalize(stmt);
     return results;
 }

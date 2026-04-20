@@ -65,6 +65,34 @@ HomeInDock::~HomeInDock() {
 }
 
 void HomeInDock::SetupUI() {
+    // Premium Design System (CSS)
+    this->setStyleSheet(
+        "QWidget { background-color: #1a1a1b; color: #e8eaed; font-family: 'Segoe UI', sans-serif; }"
+        "QTabWidget::pane { border: 1px solid #3c4043; top: -1px; background: #202124; }"
+        "QTabBar::tab { background: #202124; border: 1px solid #3c4043; padding: 10px 15px; min-width: 80px; color: #9aa0a6; }"
+        "QTabBar::tab:selected { background: #35363a; border-bottom-color: #8ab4f8; color: #8ab4f8; font-weight: bold; }"
+        "QTabBar::tab:hover { background: #35363a; color: #ffffff; }"
+        "QLineEdit { background-color: #202124; border: 1px solid #3c4043; border-radius: 4px; padding: 5px; color: #ffffff; selection-background-color: #8ab4f8; }"
+        "QLineEdit:focus { border: 1px solid #8ab4f8; }"
+        "QTextEdit { background-color: #17181a; border: 1px solid #3c4043; border-radius: 4px; color: #bdc1c6; padding: 8px; line-height: 1.4; }"
+        "QPushButton { background-color: #3c4043; border: none; border-radius: 4px; padding: 6px 12px; color: #e8eaed; font-weight: 500; }"
+        "QPushButton:hover { background-color: #4f5357; }"
+        "QPushButton:pressed { background-color: #5f6368; }"
+        "QPushButton#pushBtn { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a73e8, stop:1 #174ea6); color: white; border: 1px solid #174ea6; font-weight: bold; margin-top: 5px; }"
+        "QPushButton#pushBtn:hover { background: #1a73e8; }"
+        "QPushButton#searchBtn { background-color: #35363a; border: 1px solid #3c4043; }"
+        "QCheckBox { spacing: 8px; }"
+        "QCheckBox::indicator { width: 18px; height: 18px; border: 1px solid #3c4043; border-radius: 3px; background: #202124; }"
+        "QCheckBox::indicator:checked { background: #8ab4f8; border-color: #8ab4f8; }"
+        "QGroupBox { font-weight: bold; border: 1px solid #3c4043; border-radius: 6px; margin-top: 12px; padding-top: 12px; }"
+        "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; color: #8ab4f8; padding: 0 3px; }"
+        "QListWidget { background-color: #17181a; border: 1px solid #3c4043; border-radius: 4px; }"
+        "QListWidget::item { padding: 8px; border-bottom: 1px solid #202124; }"
+        "QListWidget::item:selected { background-color: #303134; color: #8ab4f8; }"
+        "QProgressBar { background-color: #202124; border: 1px solid #3c4043; border-radius: 4px; height: 12px; text-align: center; }"
+        "QProgressBar::chunk { background-color: #81c995; border-radius: 3px; }"
+    );
+
     QVBoxLayout *main_layout = new QVBoxLayout(this);
     main_layout->setContentsMargins(5, 5, 5, 5);
     main_layout->setSpacing(2);
@@ -106,10 +134,12 @@ void HomeInDock::SetupUI() {
     bible_search_input->setPlaceholderText("Type book (e.g. Gen)...");
     search_layout->addWidget(bible_search_input);
     QPushButton *search_btn = new QPushButton("Search", this);
+    search_btn->setObjectName("searchBtn");
     search_layout->addWidget(search_btn);
     
     // [Native UI] Added Help Button
     QPushButton *help_btn = new QPushButton("?", this);
+    help_btn->setObjectName("searchBtn");
     help_btn->setFixedWidth(30);
     help_btn->setToolTip("How to use Home Indeed");
     search_layout->addWidget(help_btn);
@@ -132,6 +162,7 @@ void HomeInDock::SetupUI() {
     b_layout->addWidget(bible_suggestion_view);
     
     push_btn = new QPushButton("Push live", this);
+    push_btn->setObjectName("pushBtn");
     push_btn->setFixedHeight(35);
     b_layout->addWidget(push_btn);
     tabs_widget->addTab(bible_tab, "Bible");
@@ -144,6 +175,7 @@ void HomeInDock::SetupUI() {
     lyrics_search_input->setPlaceholderText("Search Song...");
     l_search_layout->addWidget(lyrics_search_input);
     QPushButton *l_search_btn = new QPushButton("Find", this);
+    l_search_btn->setObjectName("searchBtn");
     l_search_layout->addWidget(l_search_btn);
     l_layout->addLayout(l_search_layout);
 
@@ -230,10 +262,12 @@ void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
 
     // Mic Hub
     mic_btn = new QPushButton("🔴 LISTEN", this);
+    mic_btn->setObjectName("micBtn");
     mic_btn->setToolTip("Start Artificial Intelligence Listening");
-    mic_btn->setStyleSheet("color: #ff4444; font-weight: bold; border: 1px solid #444; border-radius: 4px; padding-left: 10px; padding-right: 10px;");
+    mic_btn->setStyleSheet("QPushButton#micBtn { color: #ff6b6b; border: 1px solid #444; border-radius: 4px; padding: 5px 12px; font-weight: bold; }");
     
     pause_btn = new QPushButton("⏸️", this);
+    pause_btn->setObjectName("searchBtn");
     pause_btn->setToolTip("Pause Listening");
     pause_btn->setEnabled(false);
 
@@ -446,13 +480,13 @@ void HomeInDock::OnToggleMic() {
         StartTranscription();
         mic_active = true;
         mic_btn->setText("⬛ STOP");
-        mic_btn->setStyleSheet("color: white; background-color: #ff4444; font-weight: bold; padding: 5px;");
+        mic_btn->setStyleSheet("QPushButton#micBtn { color: white; background-color: #ff4444; border: 1px solid #ff4444; font-weight: bold; padding: 5px 12px; }");
         pause_btn->setEnabled(true);
     } else {
         StopTranscription();
         mic_active = false;
         mic_btn->setText("🔴 LISTEN");
-        mic_btn->setStyleSheet("color: #ff4444; font-weight: bold; border: 1px solid #444; padding: 5px;");
+        mic_btn->setStyleSheet("QPushButton#micBtn { color: #ff6b6b; border: 1px solid #444; border-radius: 4px; padding: 5px 12px; font-weight: bold; }");
         pause_btn->setEnabled(false);
         mic_paused = false;
         pause_btn->setText("⏸️");
@@ -467,13 +501,27 @@ void HomeInDock::OnTogglePause() {
 }
 
 void HomeInDock::StartTranscription() {
-    char *model_path = obs_module_file("models/ggml-tiny.en.bin");
+    // Try models in order of quality: small > base > tiny
+    const char* model_names[] = {"models/ggml-small.en.bin", "models/ggml-base.en.bin", "models/ggml-tiny.en.bin"};
+    char* model_path = nullptr;
+    
+    for (const char* name : model_names) {
+        model_path = obs_module_file(name);
+        if (model_path) {
+            blog(LOG_INFO, "HomeIndeed: Using AI model: %s", name);
+            break;
+        }
+    }
+
     if (model_path && stt_engine.Initialize(model_path)) {
         stt_engine.Start([this](const std::string& text, bool is_partial) {
             QMetaObject::invokeMethod(this, "AppendTranscript", Qt::QueuedConnection, Q_ARG(std::string, text));
         });
     } else {
-        QMessageBox::warning(this, "STT Error", "Could not load the AI model (ggml-tiny.en.bin). Please ensure the models folder was copied correctly.");
+        QMessageBox::warning(this, "STT Error", 
+            "Could not load any AI model.\n\n"
+            "Please download ggml-small.en.bin and place it in the models folder.\n"
+            "Download: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin");
     }
     if (model_path) bfree(model_path);
 }
@@ -534,6 +582,8 @@ void HomeInDock::PopulateChapterGrid(const std::string& book_name, int count) {
     for (int i = 0; i < count; ++i) {
         QPushButton *btn = new QPushButton(QString::number(i + 1), this);
         btn->setFixedSize(35, 30);
+        btn->setObjectName("searchBtn");
+        btn->setStyleSheet("QPushButton { font-size: 13px; font-weight: bold; background-color: #35363a; border: 1px solid #444; } QPushButton:hover { background-color: #4285f4; border-color: #4285f4; }");
         connect(btn, &QPushButton::clicked, this, &HomeInDock::OnChapterSelected);
         bible_grid_layout->addWidget(btn, i / cols, i % cols);
     }

@@ -28,3 +28,9 @@
 
 # Exclude CMake build number cache
 /cmake/.CMakeBuildNumber
+
+# Exclude large binary assets
+*.bin
+*.db
+!data/homein-bible.db
+!data/homein-lyrics.db

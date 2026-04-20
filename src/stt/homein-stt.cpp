@@ -60,15 +60,25 @@ void HomeInSTTEngine::RunLoop() {
 
     std::vector<float> pcmf32;
     
-    // Whisper parameters
+    // Whisper parameters — tuned for church/worship context
     whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     wparams.n_threads = n_threads;
     wparams.print_realtime = false;
     wparams.print_progress = false;
     wparams.language = "en";
     wparams.translate = false;
-    wparams.no_context = false; // Keep context for better continuity
-    wparams.single_segment = true; // Better for real-time live captioning
+    wparams.no_context = false;        // Keep context for better continuity
+    wparams.single_segment = true;     // Better for real-time live captioning
+    wparams.suppress_blank = true;     // Suppress [BLANK_AUDIO] at model level
+    wparams.suppress_nst = true;       // Suppress non-speech tokens
+    
+    // Bias the model toward church/worship vocabulary
+    wparams.initial_prompt = "Bible scripture, worship, church service, "
+        "Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, Ruth, "
+        "Samuel, Kings, Chronicles, Psalms, Proverbs, Isaiah, Jeremiah, Ezekiel, Daniel, "
+        "Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, Ephesians, "
+        "Philippians, Colossians, Thessalonians, Timothy, Hebrews, James, Peter, "
+        "Revelation, hallelujah, amen, praise, worship, glory, grace, salvation";
 
     while (running) {
         if (is_paused) {

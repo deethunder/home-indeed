@@ -38,6 +38,16 @@ public:
      */
     bool FindSong(const std::string& title, const std::string& artist, SongLyric& out_song);
 
+    /**
+     * @brief Rebuilds the FTS5 index after batch imports.
+     */
+    void RebuildFTS();
+
+    /**
+     * @brief Performs a startup check and logs the status of the lyrics database.
+     */
+    void ValidateDatabase();
+
 private:
     sqlite3* db = nullptr;
 };

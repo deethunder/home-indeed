@@ -61,6 +61,16 @@ public:
      */
     std::vector<std::string> GetTranslations();
 
+    /**
+     * @brief Performs a startup check and logs the status of the database tables.
+     */
+    void ValidateDatabase();
+
+    /**
+     * @brief Auto-migration: rename "Book 1" to "Genesis" etc.
+     */
+    void RunMigration();
+
 private:
     sqlite3* db = nullptr;
 };
