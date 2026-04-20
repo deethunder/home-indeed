@@ -33,22 +33,12 @@ public:
      */
     static void Register();
 
-    /**
-     * @brief Updates the content to be displayed on the overlay.
-     * @param text The new text string (Bible verse or song lyrics).
-     */
     void SetText(const std::string& text);
-
-    /**
-     * @brief The core rendering callback called by OBS on the graphics thread.
-     * @param effect The graphics effect being used for the draw call.
-     */
     void Render(gs_effect_t *effect);
-
-    /**
-     * @brief Updates the overlay settings (alignment, size, etc.)
-     */
     void UpdateSettings(const OverlaySettings& settings);
+
+    uint32_t GetWidth() const { return width; }
+    uint32_t GetHeight() const { return height; }
 
 private:
     /**

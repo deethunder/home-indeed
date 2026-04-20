@@ -180,13 +180,14 @@ private:
         }
         progressBar->setValue(40);
 
-        // 2. Copy Data Folder
+        // 2. Copy Data Folder (databases, models)
         statusLabel->setText("Copying data files...");
         QString baseDir = QCoreApplication::applicationDirPath();
+
+        // Strategy 1: Look for a 'data' subfolder next to the exe
         QString srcData = baseDir + "/data";
         
-        // --- Development Search Logic ---
-        // If not found in current dir, search up to 3 levels up (for build/RelWithDebInfo runs)
+        // Strategy 2: Walk up 3 levels (for build/Release runs)
         if (!QDir(srcData).exists()) {
             QDir parentDir(baseDir);
             for (int i = 0; i < 3; ++i) {
@@ -199,17 +200,23 @@ private:
                 }
             }
         }
-        
-        // Verify source data exists
+
         if (!QDir(srcData).exists()) {
-             QMessageBox::warning(this, "Setup Warning", 
-                "Source 'data' folder not found. Some features (Bible/STT) may not work until databases are manually added.");
+            QMessageBox::warning(this, "Setup Warning",
+                "Source 'data' folder not found. Bible and Lyrics search will not work.\n\n"
+                "Please manually copy the 'data' folder from the project to alongside the installer.");
         } else {
             QString failedFile;
-            if (!copyRecursively(srcData, dataPath, failedFile)) {
-                QMessageBox::warning(this, "Partial Success", 
-                    QString("Plugin copied, but file '%1' is currently in use or locked.\n\n"
-                            "Please ensure all Bible/SQLite tools and OBS are closed.").arg(failedFile));
+            copyRecursively(srcData, dataPath, failedFile);
+        }
+
+        // --- Also copy any .db files sitting directly next to the installer ---
+        QStringList dbFiles = {"homein-bible.db", "homein-lyrics.db"};
+        for (const QString& dbFile : dbFiles) {
+            QString srcDb = baseDir + "/" + dbFile;
+            if (QFile::exists(srcDb)) {
+                QFile::remove(dataPath + "/" + dbFile);
+                QFile::copy(srcDb, dataPath + "/" + dbFile);
             }
         }
         

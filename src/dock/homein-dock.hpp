@@ -19,6 +19,7 @@
 #include <QProgressBar>
 #include <QLineEdit>
 #include <QTimer>
+#include <QGridLayout>
 #include "../stt/homein-stt.hpp"
 #include "../database/homein-db.hpp"
 #include "../database/homein-lyrics-db.hpp"
@@ -28,7 +29,7 @@
 
 /**
  * @brief The primary control dock for Home Indeed.
- * Now featuring a swappable view stack and a native OBS-style toolbar.
+ * Featuring native OBS-style integration and interactive chapter selection.
  */
 class HomeInDock : public QWidget {
     Q_OBJECT
@@ -54,6 +55,8 @@ private slots:
     void OnToggleMic();
     void OnTogglePause();
     void OnImportEasyWorship();
+    void OnChapterSelected();
+    void OnShowHelp();
     void SetFocusMode(FocusMode mode);
 
 private:
@@ -67,47 +70,44 @@ private:
     void SearchLyrics(const std::string& query);
     void CheckForLyrics(const std::string& text);
     void PopulateTranslations();
+    void ClearBibleGrid();
+    void PopulateChapterGrid(const std::string& book_name, int count);
 
     FocusMode current_focus = FocusMode::Auto;
     bool mic_active = false;
     bool mic_paused = false;
 
-    // UI Buttons for Mic Hub
+    // UI members
     QPushButton *mic_btn;
     QPushButton *pause_btn;
     QComboBox *focus_combo;
-
-    // View stack for swapping between Tabs and Settings
     QStackedWidget *view_stack;
     QWidget *tabs_page;
     QWidget *settings_page;
-
-    // Tabs
     QTabWidget *tabs_widget;
-    
-    // Bible suggest
+
+    // Bible components
     QTextEdit *transcript_view;
     QTextEdit *bible_suggestion_view;
     QLineEdit *bible_search_input;
     QLabel *suggestion_label;
     QPushButton *push_btn;
+    QWidget *bible_grid_container;
+    QGridLayout *bible_grid_layout;
+    std::string current_search_book;
 
-    // Lyrics
+    // Lyrics & Queue
     QLineEdit *lyrics_search_input;
     QTextEdit *lyrics_result_view;
     QCheckBox *allow_web_checkbox;
     QPushButton *prev_verse_btn;
     QPushButton *next_verse_btn;
-
-    // Queue
     QListWidget *queue_list;
     
-    // Display Settings
+    // Settings / UI Layout
     QComboBox *align_combo;
     QCheckBox *fullscreen_checkbox;
     QComboBox *bible_version_combo;
-
-    // Automation Settings
     QCheckBox *auto_switch_tabs_checkbox;
     QCheckBox *auto_search_checkbox;
     QCheckBox *auto_push_checkbox;
@@ -115,17 +115,16 @@ private:
     bool auto_search = true;
     bool auto_push = true;
 
-    // Testing UI
+    // Audio/System Monitoring
     QProgressBar *audio_level_bar;
     QLineEdit *last_word_field;
     QTimer *level_timer;
-    
     std::vector<std::string> current_song_lines;
     int current_verse_index = -1;
 
     HomeInSTTEngine stt_engine;
-    HomeInDB bible_db;
     HomeInRefParser ref_parser;
+    HomeInDB bible_db;
     HomeInLyricsEngine lyrics_engine;
     HomeInUpdateChecker updater;
 };

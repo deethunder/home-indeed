@@ -59,6 +59,7 @@ private:
     TranscriptCallback on_transcript;
 
     std::string model_file;
+    std::string last_emitted_text;
     
     // Performance settings
     int n_threads = 4;

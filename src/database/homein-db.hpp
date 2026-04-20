@@ -47,6 +47,11 @@ public:
     bool GetVerse(const std::string& book_name, int chapter, int verse, const std::string& translation_abbr, BibleVerse& out_verse);
 
     /**
+     * @brief Returns the number of chapters in a book.
+     */
+    int GetChapterCount(const std::string& book_name);
+
+    /**
      * @brief Fuzzy search for a verse by text snippet.
      */
     std::vector<BibleVerse> SearchVerses(const std::string& query, int limit = 5);

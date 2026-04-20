@@ -99,8 +99,8 @@ void HomeInSTTEngine::RunLoop() {
         for (float s : latest_samples) sum += s * s;
         float rms = sqrtf(sum / latest_samples.size());
         
-        // Skip Whisper if the audio is essentially silent (-40dB approx)
-        if (rms < 0.01f) {
+        // Skip Whisper if the audio is essentially silent (increased threshold for stability)
+        if (rms < 0.025f) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
@@ -114,15 +114,32 @@ void HomeInSTTEngine::RunLoop() {
         std::string full_text = "";
         for (int i = 0; i < n_segments; ++i) {
             const char* text = whisper_full_get_segment_text(ctx, i);
-            full_text += text;
+            
+            // [Meta-Token Suppression] Skip tokens that are not actual speech
+            std::string segment = text;
+            if (segment.find("[") != std::string::npos || segment.find("(") != std::string::npos) {
+                if (segment.find("[BLANK_AUDIO]") != std::string::npos || 
+                    segment.find("[MUSIC]") != std::string::npos ||
+                    segment.find("[LAUGHTER]") != std::string::npos ||
+                    segment.find("(noise)") != std::string::npos) {
+                    continue;
+                }
+            }
+            full_text += segment;
         }
 
         if (!full_text.empty() && on_transcript) {
-            // Cleanup and emit
+            // Cleanup
             full_text.erase(0, full_text.find_first_not_of(" \t\n\r"));
             full_text.erase(full_text.find_last_not_of(" \t\n\r") + 1);
             
+            // [De-Stutter Filter] Prevent looped hallucinations (repeating the same small phrase)
+            if (full_text == last_emitted_text && full_text.length() < 15) {
+                continue; 
+            }
+
             if (!full_text.empty()) {
+                last_emitted_text = full_text;
                 on_transcript(full_text, false);
             }
         }

@@ -94,7 +94,7 @@ void HomeInDock::SetupUI() {
     QVBoxLayout *t_layout = new QVBoxLayout(transcript_tab);
     transcript_view = new QTextEdit(this);
     transcript_view->setReadOnly(true);
-    transcript_view->setStyleSheet("background-color: #1e1e1e; color: #ffffff;");
+    // Removed hardcoded background for native OBS look
     t_layout->addWidget(transcript_view);
     tabs_widget->addTab(transcript_tab, "Transcript");
 
@@ -103,19 +103,36 @@ void HomeInDock::SetupUI() {
     QVBoxLayout *b_layout = new QVBoxLayout(bible_tab);
     QHBoxLayout *search_layout = new QHBoxLayout();
     bible_search_input = new QLineEdit(this);
-    bible_search_input->setPlaceholderText("Search Scripture...");
+    bible_search_input->setPlaceholderText("Type book (e.g. Gen)...");
     search_layout->addWidget(bible_search_input);
     QPushButton *search_btn = new QPushButton("Search", this);
     search_layout->addWidget(search_btn);
+    
+    // [Native UI] Added Help Button
+    QPushButton *help_btn = new QPushButton("?", this);
+    help_btn->setFixedWidth(30);
+    help_btn->setToolTip("How to use Home Indeed");
+    search_layout->addWidget(help_btn);
+    
     b_layout->addLayout(search_layout);
+    
     suggestion_label = new QLabel("No verse detected...", this);
+    suggestion_label->setStyleSheet("font-weight: bold; color: #5294e2;");
     b_layout->addWidget(suggestion_label);
+
+    // [New] Chapter Grid Container
+    bible_grid_container = new QWidget(this);
+    bible_grid_layout = new QGridLayout(bible_grid_container);
+    bible_grid_layout->setSpacing(2);
+    bible_grid_container->setVisible(false);
+    b_layout->addWidget(bible_grid_container);
+
     bible_suggestion_view = new QTextEdit(this);
     bible_suggestion_view->setReadOnly(true);
-    bible_suggestion_view->setStyleSheet("background-color: #1e2a1e; color: #aaffaa;");
     b_layout->addWidget(bible_suggestion_view);
-    push_btn = new QPushButton("Push to Screen", this);
-    push_btn->setStyleSheet("background-color: #2a4a2a; color: white; font-weight: bold;");
+    
+    push_btn = new QPushButton("Push live", this);
+    push_btn->setFixedHeight(35);
     b_layout->addWidget(push_btn);
     tabs_widget->addTab(bible_tab, "Bible");
 
@@ -172,14 +189,24 @@ void HomeInDock::SetupUI() {
     // --- Connections ---
     connect(search_btn, &QPushButton::clicked, [this]() { 
         std::string text = bible_search_input->text().toStdString();
-        auto refs = ref_parser.Parse(text);
-        if (refs.empty()) PerformFuzzySearch(text);
-        else CheckForReferences(text);
+        int chapters = bible_db.GetChapterCount(text);
+        if (chapters > 0) {
+            current_search_book = text;
+            PopulateChapterGrid(text, chapters);
+        } else {
+            auto refs = ref_parser.Parse(text);
+            if (refs.empty()) PerformFuzzySearch(text);
+            else CheckForReferences(text);
+        }
     });
+    connect(help_btn, &QPushButton::clicked, this, &HomeInDock::OnShowHelp);
     connect(l_search_btn, &QPushButton::clicked, [this]() { SearchLyrics(lyrics_search_input->text().toStdString()); });
     connect(push_btn, &QPushButton::clicked, [this]() {
         HomeInRenderer* r = GetActiveRenderer();
-        if (r) r->SetText(suggestion_label->text().toStdString() + "\n" + bible_suggestion_view->toPlainText().toStdString());
+        if (r) {
+            std::string text = suggestion_label->text().toStdString() + "\n" + bible_suggestion_view->toPlainText().toStdString();
+            r->SetText(text);
+        }
     });
     connect(prev_verse_btn, &QPushButton::clicked, [this]() {
         if (current_verse_index > 0) { current_verse_index--; lyrics_result_view->setText(QString::fromStdString(current_song_lines[current_verse_index])); }
@@ -457,21 +484,83 @@ void HomeInDock::StopTranscription() {
 }
 
 void HomeInDock::OnImportEasyWorship() {
-    QStringList files = QFileDialog::getOpenFileNames(this, 
-        "Select EasyWorship (OpenLyrics) XML Files", 
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
-        "OpenLyrics XML (*.xml)");
+    QMessageBox::StandardButton reply = QMessageBox::question(this, "Import Option", 
+        "Would you like to sync DIRECTLY from your EasyWorship database (Fastest)?",
+        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
 
-    if (files.isEmpty()) return;
+    if (reply == QMessageBox::Cancel) return;
 
     HomeInImporter importer(lyrics_engine.GetDB());
     int count = 0;
-    for (const QString& file : files) {
-        count += importer.ImportFile(file);
+
+    if (reply == QMessageBox::Yes) {
+        QString dbPath = QFileDialog::getOpenFileName(this, "Select EasyWorship Songs.db", 
+            "C:/Users/Public/Documents/Softouch/EasyWorship/Default/v6.1/Databases/Data", 
+            "EasyWorship Database (Songs.db)");
+        if (!dbPath.isEmpty()) {
+            count = importer.ImportFromEW7(dbPath);
+        }
+    } else {
+        QStringList files = QFileDialog::getOpenFileNames(this, 
+            "Select EasyWorship (OpenLyrics) XML Files", 
+            QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+            "OpenLyrics XML (*.xml)");
+        for (const QString& file : files) {
+            count += importer.ImportFile(file);
+        }
     }
 
-    QMessageBox::information(this, "Import Complete", 
-        QString("Successfully imported %1 songs into your local library.").arg(count));
+    if (count > 0) {
+        QMessageBox::information(this, "Import Complete", 
+            QString("Successfully synced %1 songs into your local library.").arg(count));
+    }
+}
+
+void HomeInDock::ClearBibleGrid() {
+    QLayoutItem *child;
+    while ((child = bible_grid_layout->takeAt(0)) != nullptr) {
+        delete child->widget();
+        delete child;
+    }
+}
+
+void HomeInDock::PopulateChapterGrid(const std::string& book_name, int count) {
+    ClearBibleGrid();
+    bible_suggestion_view->setVisible(false);
+    bible_grid_container->setVisible(true);
+    suggestion_label->setText(QString("Selecting Chapters for %1:").arg(QString::fromStdString(book_name)));
+
+    int cols = 6;
+    for (int i = 0; i < count; ++i) {
+        QPushButton *btn = new QPushButton(QString::number(i + 1), this);
+        btn->setFixedSize(35, 30);
+        connect(btn, &QPushButton::clicked, this, &HomeInDock::OnChapterSelected);
+        bible_grid_layout->addWidget(btn, i / cols, i % cols);
+    }
+}
+
+void HomeInDock::OnChapterSelected() {
+    QPushButton *btn = qobject_cast<QPushButton*>(sender());
+    if (!btn) return;
+    int chapter = btn->text().toInt();
+    
+    std::string version = bible_version_combo->currentText().toStdString();
+    BibleVerse verse;
+    if (bible_db.GetVerse(current_search_book, chapter, 1, version, verse)) {
+        ShowBibleSuggestion(verse.book_name, verse.chapter, verse.verse, verse.text);
+        bible_grid_container->setVisible(false);
+        bible_suggestion_view->setVisible(true);
+    }
+}
+
+void HomeInDock::OnShowHelp() {
+    QMessageBox::information(this, "Getting Started with Home Indeed",
+        "<b>1. Display to Stream:</b><br>"
+        "Click the <b>(+)</b> in OBS Sources -> Select <b>'Home Indeed Overlay'</b>.<br><br>"
+        "<b>2. Audio Sync:</b><br>"
+        "Go to Settings -> <b>Audio Setup Guide</b> to connect your mic.<br><br>"
+        "<b>3. Navigation:</b><br>"
+        "Type a book like 'Gen' to see chapter buttons, or just speak to see auto-detections!");
 }
 
 void HomeInDock::PopulateTranslations() {

@@ -150,4 +150,19 @@ if(WIN32 AND ENABLE_QT)
         OUTPUT_NAME "Home-Indeed-Uninstaller"
         LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\""
     )
+
+    # --- Copy databases and data folder to Release output ---
+    # This ensures the installer can find and bundle them alongside the .exe
+    add_custom_command(TARGET home-indeed-installer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/data/homein-bible.db"
+            "$<TARGET_FILE_DIR:home-indeed-installer>/homein-bible.db"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/data/homein-lyrics.db"
+            "$<TARGET_FILE_DIR:home-indeed-installer>/homein-lyrics.db"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/data"
+            "$<TARGET_FILE_DIR:home-indeed-installer>/data"
+        COMMENT "Bundling databases alongside installer..."
+    )
 endif()

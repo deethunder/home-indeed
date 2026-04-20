@@ -64,6 +64,23 @@ bool HomeInDB::GetVerse(const std::string& book_name, int chapter, int verse, co
     return found;
 }
 
+int HomeInDB::GetChapterCount(const std::string& book_name) {
+    if (!db) return 0;
+    const char* sql = "SELECT MAX(version_chapter) FROM verses v JOIN books b ON v.book_id = b.id WHERE b.name LIKE ? OR b.abbreviation LIKE ?;";
+    sqlite3_stmt* stmt;
+    int count = 0;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        std::string pattern = "%" + book_name + "%";
+        sqlite3_bind_text(stmt, 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            count = sqlite3_column_int(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+    return count;
+}
+
 std::vector<BibleVerse> HomeInDB::SearchVerses(const std::string& query, int limit) {
     std::vector<BibleVerse> results;
     if (!db) return results;

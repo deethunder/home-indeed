@@ -38,15 +38,27 @@ static void homein_renderer_video_render(void* data, gs_effect_t* effect) {
     }
 }
 
+static uint32_t homein_renderer_get_width(void *data) {
+    auto renderer = static_cast<HomeInRenderer*>(data);
+    return renderer ? renderer->GetWidth() : 1920;
+}
+
+static uint32_t homein_renderer_get_height(void *data) {
+    auto renderer = static_cast<HomeInRenderer*>(data);
+    return renderer ? renderer->GetHeight() : 1080;
+}
+
 void HomeInRenderer::Register() {
     struct obs_source_info info = {};
     info.id = "homein_overlay_source";
     info.type = OBS_SOURCE_TYPE_INPUT;
-    info.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW | OBS_SOURCE_COMPOSITE;
+    info.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW;
     info.get_name = homein_renderer_get_name;
     info.create = homein_renderer_create;
     info.destroy = homein_renderer_destroy;
     info.video_render = homein_renderer_video_render;
+    info.get_width = homein_renderer_get_width;
+    info.get_height = homein_renderer_get_height;
 
     obs_register_source(&info);
 }

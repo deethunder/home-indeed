@@ -22,6 +22,54 @@ int HomeInImporter::ImportFromFolder(const QString& folder_path) {
     return count;
 }
 
+int HomeInImporter::ImportFromEW7(const QString& db_path) {
+    if (db_path.isEmpty()) return 0;
+
+    sqlite3* ew_db;
+    if (sqlite3_open(db_path.toStdString().c_str(), &ew_db) != SQLITE_OK) {
+        return 0;
+    }
+
+    const char* query = "SELECT title, lyrics, author FROM song;";
+    sqlite3_stmt* stmt;
+    int count = 0;
+
+    if (sqlite3_prepare_v2(ew_db, query, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            QString title = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+            QString rtf_lyrics = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)));
+            QString author = QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)));
+
+            QString clean_lyrics = StripRTF(rtf_lyrics);
+            if (!clean_lyrics.isEmpty()) {
+                lyrics_db.AddSong(title.toStdString(), author.toStdString(), clean_lyrics.toStdString(), "EasyWorship");
+                count++;
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(ew_db);
+    return count;
+}
+
+QString HomeInImporter::StripRTF(const QString& rtf) {
+    if (!rtf.contains("{\\rtf1")) return rtf; // Not RTF
+
+    QString out = rtf;
+    // 1. Remove control words (e.g. \fonttbl, \colortbl)
+    // Simple regex for RTF tags: anything starting with \ and ended by a space or another \ or { or }
+    static QRegularExpression re("\\\\[a-z0-9]+ ?");
+    out.remove(re);
+
+    // 2. Remove group braces
+    out.remove("{");
+    out.remove("}");
+
+    // 3. Clean up whitespace and newlines
+    out = out.trimmed();
+    return out;
+}
+
 int HomeInImporter::ImportFile(const QString& file_path) {
     QFile file(file_path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
