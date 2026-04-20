@@ -13,6 +13,12 @@
 #include <QMessageBox>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QStackedWidget>
+#include <QListWidget>
+#include <QHBoxLayout>
+#include <QProgressBar>
+#include <QLineEdit>
+#include <QTimer>
 #include "../stt/homein-stt.hpp"
 #include "../database/homein-db.hpp"
 #include "../database/homein-lyrics-db.hpp"
@@ -22,7 +28,7 @@
 
 /**
  * @brief The primary control dock for Home Indeed.
- * Provides live transcription view and Bible/Song tabs.
+ * Now featuring a swappable view stack and a native OBS-style toolbar.
  */
 class HomeInDock : public QWidget {
     Q_OBJECT
@@ -31,45 +37,63 @@ public:
     explicit HomeInDock(QWidget *parent = nullptr);
     ~HomeInDock();
 
-    /**
-     * @brief Updates the transcript area with new text.
-     */
     Q_INVOKABLE void AppendTranscript(const std::string& text);
-
-    /**
-     * @brief Displays a scripture suggestion.
-     */
     Q_INVOKABLE void ShowBibleSuggestion(const std::string& book, int chapter, int verse, const std::string& text);
-
-    /**
-     * @brief Displays lyrics results.
-     */
     Q_INVOKABLE void ShowLyricsResults(const std::vector<SongLyric>& results);
+
+private slots:
+    void AddToQueue();
+    void RemoveFromQueue();
+    void ToggleSettings();
+    void MoveQueueUp();
+    void MoveQueueDown();
+    void UpdateOverlayFromSelection();
+    void UpdateAudioTest();
 
 private:
     void SetupUI();
+    void SetupToolbar(QVBoxLayout *main_layout);
+    void SetupSettingsView(QWidget *parent);
     void StartTranscription();
     void CheckForReferences(const std::string& text);
     void PerformFuzzySearch(const std::string& text);
     void SearchLyrics(const std::string& query);
     void CheckForLyrics(const std::string& text);
 
+    // View stack for swapping between Tabs and Settings
+    QStackedWidget *view_stack;
+    QWidget *tabs_page;
+    QWidget *settings_page;
+
+    // Tabs
+    QTabWidget *tabs_widget;
+    
+    // Bible suggest
     QTextEdit *transcript_view;
     QTextEdit *bible_suggestion_view;
     QLineEdit *bible_search_input;
     QLabel *suggestion_label;
     QPushButton *push_btn;
 
-    // Lyrics Tab UI elements
+    // Lyrics
     QLineEdit *lyrics_search_input;
     QTextEdit *lyrics_result_view;
     QCheckBox *allow_web_checkbox;
     QPushButton *prev_verse_btn;
     QPushButton *next_verse_btn;
+
+    // Queue
+    QListWidget *queue_list;
     
     // Display Settings
     QComboBox *align_combo;
     QCheckBox *fullscreen_checkbox;
+    QComboBox *bible_version_combo;
+
+    // Testing UI
+    QProgressBar *audio_level_bar;
+    QLineEdit *last_word_field;
+    QTimer *level_timer;
     
     std::vector<std::string> current_song_lines;
     int current_verse_index = -1;

@@ -28,37 +28,26 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
-static void on_show_dock(void *data)
-{
-	UNUSED_PARAMETER(data);
-	obs_frontend_set_dock_obj("HomeIndeedDock", nullptr); // Placeholder for now
-}
-
 bool obs_module_load(void)
 {
-	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
+	blog(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
 
 	// Register Modules
 	HomeInAudioHandler::Register();
 	HomeInRenderer::Register();
 
 	// Register the Dock UI
-	auto factory = []() {
-		return new HomeInDock();
-	};
-	obs_frontend_add_dock_by_id("home_indeed_dock", "Home Indeed", factory);
+	// We create the widget and pass it to OBS; OBS takes ownership of the pointer
+	HomeInDock *dock = new HomeInDock();
+	obs_frontend_add_dock_by_id("home_indeed_dock", "Home Indeed", (void*)dock);
 
 	// Register the Tools menu action
-	QAction *action = (QAction *)obs_frontend_add_tools_menu_qaction(obs_module_text("Home Indeed Settings"));
-	
-	// QObject::connect(action, &QAction::triggered, []() {
-	//     // Future: show settings dialog
-	// });
+	obs_frontend_add_tools_menu_qaction(obs_module_text("Home Indeed Settings"));
 	
 	return true;
 }
 
 void obs_module_unload(void)
 {
-	obs_log(LOG_INFO, "plugin unloaded");
+	blog(LOG_INFO, "plugin unloaded");
 }

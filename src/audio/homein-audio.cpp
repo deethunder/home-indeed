@@ -14,6 +14,14 @@ static const char* homein_audio_filter_get_name(void* unused) {
     return obs_module_text("Home Indeed Audio Tap");
 }
 
+static obs_properties_t* homein_audio_filter_properties(void* data) {
+    UNUSED_PARAMETER(data);
+    obs_properties_t* props = obs_properties_create();
+    obs_properties_add_text(props, "status", "Status: 🟢 Connected & Listening", OBS_TEXT_DEFAULT);
+    obs_properties_add_text(props, "info", "This filter automatically feeds audio to the Home Indeed AI Dock. No manual settings required.", OBS_TEXT_INFO);
+    return props;
+}
+
 static void* homein_audio_filter_create(obs_data_t* settings, obs_source_t* context) {
     UNUSED_PARAMETER(settings);
     UNUSED_PARAMETER(context);
@@ -50,6 +58,7 @@ void HomeInAudioHandler::Register() {
     info.create = homein_audio_filter_create;
     info.destroy = homein_audio_filter_destroy;
     info.filter_audio = homein_audio_filter_audio;
+    info.get_properties = homein_audio_filter_properties;
 
     obs_register_source(&info);
 }
@@ -71,7 +80,7 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
     if (!resampler || sample_rate != last_sample_rate) {
         resampler = std::make_unique<HomeInResampler>(sample_rate, TARGET_SAMPLE_RATE);
         last_sample_rate = sample_rate;
-        obs_log(LOG_INFO, "Audio Resampler initialized: %u Hz -> %u Hz", sample_rate, TARGET_SAMPLE_RATE);
+        blog(LOG_INFO, "Audio Resampler initialized: %u Hz -> %u Hz", sample_rate, TARGET_SAMPLE_RATE);
     }
 
     float** data = reinterpret_cast<float**>(audio->data);
@@ -81,6 +90,7 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
     std::vector<float> mono_input;
     mono_input.reserve(frames);
 
+    float max_peak = 0.0f;
     for (size_t i = 0; i < frames; ++i) {
         float mono_sample = 0.0f;
         int active_channels = 0;
@@ -91,7 +101,19 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
             }
         }
         if (active_channels > 0) mono_sample /= (float)active_channels;
+        
+        float abs_sample = std::abs(mono_sample);
+        if (abs_sample > max_peak) max_peak = abs_sample;
+        
         mono_input.push_back(mono_sample);
+    }
+
+    // Smooth the peak value (decaying peak)
+    float prev_level = current_level.load();
+    if (max_peak > prev_level) {
+        current_level.store(max_peak);
+    } else {
+        current_level.store(prev_level * 0.8f + max_peak * 0.2f);
     }
 
     // 2. High-Quality Resample

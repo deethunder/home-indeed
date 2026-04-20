@@ -1,4 +1,4 @@
-# 🕊️ Home Indeed OBS Plugin
+# 🕊️ Home Indeed OBS Plugin (HI)
 
 **Real-time AI-powered Bible Verse & Song Lyrics Overlay for OBS Studio.**
 
@@ -8,54 +8,55 @@ Home Indeed is a native C++ plugin designed for church media teams. It uses high
 
 ## ✨ Features
 
-*   **🎙️ Real-time Transcription**: Powered by a local Whisper.cpp engine. No internet required for basic transcription.
-*   **📖 Smart Bible Detection**: Automatically detects references like *"John 3:16"* or *"First Corinthians 13"* and suggests the text instantly from a built-in FTS5 database.
-*   **🎶 Live Lyrics Engine**: 
-    *   **Auto-Detection**: Identifying songs as they are sung.
-    *   **LRCLIB Integration**: Live web-search for contemporary worship songs.
-    *   **Local Caching**: Search your church's library offline.
-*   **🖥️ HDMI Capture Card Support**: Works with any audio source, including HDMI feeds from video capture cards via OBS Audio Mixer filters.
-*   **✨ Premium Overlays**: Native transparent video sources for high-quality, professional lower-thirds.
-*   **📦 Zero Prerequisites**: Statically bundled dependencies for a simply "copy-and-paste" installation.
+*   **🎙️ Real-time Transcription**: Powered by a local Whisper.cpp engine.
+*   **📖 Smart Bible Detection**: Automatically detects references like *"John 3:16"* and suggests text instantly.
+*   **🔊 Live Audio Test**: Use the built-in meter in the Settings tab to verify your microphone is picking up sound and transcribing correctly before your service starts.
+*   **🎶 Scripture Queue**: Use the `+` button to build a list of upcoming scriptures for your service.
+*   **⚙️ Professional Settings**: Customizable alignment, full-screen modes, and bible versions via a dedicated settings page.
+*   **📦 One-Click Launcher**: Quick-launch OBS directly from your desktop.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start & Audio Setup
 
-### 1. Installation (Recommended)
-1.  Download the latest installer for your OS from the [Releases](https://github.com/obsproject/obs-plugintemplate/releases) page:
-    *   **Windows**: `Home-Indeed-Installer.exe`
-    *   **macOS**: `Home-Indeed-Installer.pkg`
-    *   **Linux**: `Home-Indeed-Installer.deb`
-2.  Run the installer. It will automatically detect your OBS installation and place the plugin, Bible databases, and AI models in the correct folders.
-3.  Restart OBS.
+### 1. Installation
+1.  Run the `Home-Indeed-Installer.exe`.
+2.  It will create a **Home Indeed** shortcut on your desktop. Double-click it to launch OBS.
 
-### 2. Setup the Audio Tap
-1.  Add your audio source (Microphone or Capture Card) to OBS.
-2.  In the **Audio Mixer**, click the gear icon next to your source.
-3.  Select **Filters** -> **+** -> **Home Indeed Audio Tap**.
-4.  Open the **Home Indeed Control Dock** from the `Docks` menu.
-
-### 3. Usage
-*   **Bible**: Speak a reference or use the search bar. Click **Push to Screen** to display.
-*   **Lyrics**: Use the Search tab or let the AI find the song for you. Move through verses with the **Previous/Next** stepper.
+### 2. Step-by-Step Audio Activation (CRITICAL)
+For the plugin to "hear" anything, you must tap an audio source:
+1.  Add your audio source (Mic, HDMI Capture, etc.) to your OBS Scene.
+2.  In the **Audio Mixer**, click the **Gear (⚙️)** or **three dots** next to your source.
+3.  Select **Filters**.
+4.  Click **+** -> **Home Indeed Audio Tap**.
+5.  Open the **Home Indeed** dock from the `Docks` menu.
 
 ---
 
-## 🛠️ Built-With
+## ⚓ The Control Dock
 
-*   **Language**: C++20
-*   **UI Framework**: Qt6 (OBS Frontend API)
-*   **AI Engine**: [Whisper.cpp](https://github.com/ggerganov/whisper.cpp)
-*   **Database**: SQLite 3 (FTS5)
-*   **API Client**: LRCLIB (Lyrics Search)
+### ⌨️ Bottom Toolbar
+*   **`+` (Add)**: Adds the currently detected verse or lyric to your **Queue**.
+*   **`🗑️` (Discard)**: Removes the selected item from your Queue.
+*   **`⚙️` (Settings)**: Opens the settings page for alignment and audio help.
+*   **`▲` / `▼`**: Navigates through your queued items.
+
+### 📖 Usage
+*   **Queue**: Double-click any item in the `Queue` tab to push it to the live overlay.
+*   **Bible**: Speak a reference while using the Audio Tap. Click `+` to queue it or `Push` to show it immediately.
 
 ---
 
-## 🤝 Contributing
+## 🛡️ Trust & Security
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to set up your development environment.
+### Malware-Free Guarantee
+We guarantee that the Home Indeed OBS Plugin is free of any malware. Source code is public for audit.
+
+### Authenticity
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+---
 
 ## 📄 License
 
-This project is licensed under the **GPL v3.0 License** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GPL v2.0 License** - see the [LICENSE](LICENSE) file for details.

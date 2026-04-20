@@ -12,7 +12,7 @@ bool HomeInLyricsDB::Open(const std::string& db_path) {
     
     int rc = sqlite3_open(db_path.c_str(), &db);
     if (rc != SQLITE_OK) {
-        obs_log(LOG_ERROR, "Failed to open Lyrics database: %s", sqlite3_errmsg(db));
+        blog(LOG_ERROR, "Failed to open Lyrics database: %s", sqlite3_errmsg(db));
         db = nullptr;
         return false;
     }

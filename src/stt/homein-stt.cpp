@@ -27,11 +27,11 @@ bool HomeInSTTEngine::Initialize(const std::string& model_path) {
 
     ctx = whisper_init_from_file_with_params(model_path.c_str(), cparams);
     if (!ctx) {
-        obs_log(LOG_ERROR, "Failed to initialize Whisper context from %s", model_path.c_str());
+        blog(LOG_ERROR, "Failed to initialize Whisper context from %s", model_path.c_str());
         return false;
     }
 
-    obs_log(LOG_INFO, "Whisper STT Engine initialized successfully with model: %s", model_path.c_str());
+    blog(LOG_INFO, "Whisper STT Engine initialized successfully with model: %s", model_path.c_str());
     return true;
 }
 
@@ -53,7 +53,7 @@ void HomeInSTTEngine::Stop() {
 void HomeInSTTEngine::RunLoop() {
     HomeInAudioHandler* audio = GetAudioHandler();
     if (!audio) {
-        obs_log(LOG_ERROR, "STT Engine cannot find Audio Handler!");
+        blog(LOG_ERROR, "STT Engine cannot find Audio Handler!");
         running = false;
         return;
     }
@@ -90,7 +90,7 @@ void HomeInSTTEngine::RunLoop() {
         }
 
         if (whisper_full(ctx, wparams, pcmf32.data(), (int)pcmf32.size()) != 0) {
-            obs_log(LOG_ERROR, "Whisper failed to process audio");
+            blog(LOG_ERROR, "Whisper failed to process audio");
             continue;
         }
 

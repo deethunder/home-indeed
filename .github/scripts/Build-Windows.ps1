@@ -13,10 +13,6 @@ if ( $DebugPreference -eq 'Continue' ) {
     $InformationPreference = 'Continue'
 }
 
-if ( $env:CI -eq $null ) {
-    throw "Build-Windows.ps1 requires CI environment"
-}
-
 if ( ! ( [System.Environment]::Is64BitOperatingSystem ) ) {
     throw "A 64-bit system is required to build the project."
 }
@@ -37,6 +33,34 @@ function Build {
     $ScriptHome = $PSScriptRoot
     $ProjectRoot = Resolve-Path -Path "$PSScriptRoot/../.."
 
+    # --- Smart Path Detection (v1.4) ---
+    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        # Using -products * to find BuildTools as well as full VS
+        $script:vsPath = & $vswhere -latest -products * -property installationPath
+        if ($script:vsPath) {
+            Write-Host "  =>   Found Visual Studio: $script:vsPath" -ForegroundColor Green
+            $msbuildPath = Get-ChildItem -Path "$script:vsPath" -Recurse -Filter "MSBuild.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($msbuildPath) {
+                $msbuildDir = Split-Path -Path $msbuildPath.FullName
+                if ($env:PATH -notlike "*$msbuildDir*") { $env:PATH = "$msbuildDir;$env:PATH" }
+            }
+        }
+    }
+
+    $ManualPaths = @(
+        "C:\Program Files\CMake\bin",
+        "C:\Program Files\PowerShell\7",
+        "C:\Qt\6.11.0\msvc2022_64\bin",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\*\bin\Hostx64\x64"
+    )
+    foreach ($Path in $ManualPaths) {
+        if ((Test-Path $Path) -and ($env:PATH -notlike "*$Path*")) { 
+            $env:PATH = "$Path;$env:PATH" 
+        }
+    }
+    # -----------------------------------
+
     $UtilityFunctions = Get-ChildItem -Path $PSScriptRoot/utils.pwsh/*.ps1 -Recurse
 
     foreach($Utility in $UtilityFunctions) {
@@ -44,10 +68,40 @@ function Build {
         . $Utility.FullName
     }
 
+    $BuildSpec = Get-Content -Path "$ProjectRoot/buildspec.json" -Raw | ConvertFrom-Json
+    $ProductName = $BuildSpec.name
+    $ProductVersion = $BuildSpec.version
+
     Push-Location -Stack BuildTemp
     Ensure-Location $ProjectRoot
 
+    # --- Clean Slate (v1.5) ---
+    $BuildDir = "$ProjectRoot/build_${Target}"
+    if (Test-Path $BuildDir) {
+        Write-Host "  =>   Cleaning old build files..." -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $BuildDir
+    }
+
     $CmakeArgs = @('--preset', "windows-ci-${Target}")
+    # Local developer fix: Disable "Warnings as Errors" so vendor libraries (like whisper.cpp) 
+    # which have minor warnings can still be compiled successfully.
+    $CmakeArgs += "-DCMAKE_COMPILE_WARNING_AS_ERROR=OFF"
+    
+    # Force Static libraries: This avoids a known crash in cmake.exe (-1073741819) 
+    # during "Auto build dll exports" on some Windows environments.
+    $CmakeArgs += @("-DBUILD_SHARED_LIBS=OFF", "-DWHISPER_SHAREDLIB=OFF")
+
+    # Force UI features enabled for local build (overriding CI defaults)
+    $CmakeArgs += @("-DENABLE_QT=ON", "-DENABLE_FRONTEND_API=ON")
+
+    if ($script:vsPath) {
+        $CmakeArgs += "-DCMAKE_GENERATOR_INSTANCE=$script:vsPath"
+        # If it's VS 2019, we must override the 2022 generator in the preset
+        if ($script:vsPath -like "*2019*") {
+            $CmakeArgs += @("-G", "Visual Studio 16 2019")
+        }
+    }
+
     $CmakeBuildArgs = @('--build')
     $CmakeInstallArgs = @()
 

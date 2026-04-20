@@ -34,7 +34,7 @@ void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query, SearchCallbac
     // For the current implementation step, we'll implement a clean skeleton 
     // that uses a placeholder result to demonstrate the UI-Engine connection.
     
-    obs_log(LOG_INFO, "Simulating LRCLIB search for: %s", query.c_str());
+    blog(LOG_INFO, "Simulating LRCLIB search for: %s", query.c_str());
     
     // Simulating a network delay
     std::this_thread::sleep_for(std::chrono::milliseconds(800));

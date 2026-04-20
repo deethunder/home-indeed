@@ -23,7 +23,7 @@ void HomeInUpdateChecker::CheckForUpdates(const QString& repo_path) {
 
 void HomeInUpdateChecker::OnReplyFinished(QNetworkReply *reply) {
     if (reply->error() != QNetworkReply::NoError) {
-        obs_log(LOG_WARNING, "Update check failed: %s", reply->errorString().toStdString().c_str());
+        blog(LOG_WARNING, "Update check failed: %s", reply->errorString().toStdString().c_str());
         reply->deleteLater();
         return;
     }

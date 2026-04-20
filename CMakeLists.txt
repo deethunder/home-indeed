@@ -52,6 +52,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE 
+  src
   vendor/whisper.cpp/include
   vendor/sqlite3
 )
@@ -104,4 +105,34 @@ if(BUILD_TESTS)
     target_include_directories(homein-tests PRIVATE src/audio src/database src)
     
     add_test(NAME HomeInAudioTests COMMAND homein-tests)
+endif()
+
+# --- Automated Installer Build (v1.0) ---
+if(WIN32 AND ENABLE_QT)
+    set(INSTALLER_SOURCES
+        src/installer/homein-installer.cpp
+        src/installer/resources.qrc
+    )
+    
+    add_executable(home-indeed-installer WIN32 ${INSTALLER_SOURCES})
+    
+    target_link_libraries(home-indeed-installer PRIVATE 
+        Qt6::Widgets 
+        Qt6::Core 
+        Qt6::Gui 
+        shlwapi 
+        ole32 
+        shell32 
+        advapi32
+    )
+
+    set_target_properties(home-indeed-installer PROPERTIES 
+        AUTOMOC ON 
+        AUTORCC ON 
+        OUTPUT_NAME "Home-Indeed-Installer"
+        LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\""
+    )
+    
+    # Add dependency to ensure the plugin is built before the installer (optional but good practice)
+    add_dependencies(home-indeed-installer ${CMAKE_PROJECT_NAME})
 endif()

@@ -1,5 +1,6 @@
 #include "homein-renderer.hpp"
 #include <obs-module.h>
+#include <graphics/graphics.h>
 #include <mutex>
 
 static HomeInRenderer* g_active_renderer = nullptr;
@@ -149,7 +150,7 @@ void HomeInRenderer::Render(gs_effect_t* effect) {
     if (!texture) return;
 
     // Draw the generated texture to the OBS scene
-    gs_effect_t *default_effect = gs_get_effect_by_name("Default");
+    gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
     if (default_effect) {
         gs_technique_t *tech = gs_effect_get_technique(default_effect, "Draw");
         size_t passes = gs_technique_begin(tech);

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
-#include "homein-lyrics-db.hpp"
+#include "database/homein-lyrics-db.hpp"
 
 /**
  * @brief Orchestrates lyrics lookup and caching.
@@ -11,9 +11,9 @@
  */
 class HomeInLyricsEngine {
 public:
+    HomeInLyricsEngine();
     using SearchCallback = std::function<void(const std::vector<SongLyric>& results)>;
 
-    HomeInLyricsEngine();
     ~HomeInLyricsEngine();
 
     bool Initialize(const std::string& db_path);

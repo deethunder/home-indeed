@@ -45,7 +45,6 @@ public:
      */
     void Render(gs_effect_t *effect);
 
-private:
     /**
      * @brief Updates the overlay settings (alignment, size, etc.)
      */
