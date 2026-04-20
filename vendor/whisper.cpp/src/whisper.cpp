@@ -3124,7 +3124,7 @@ static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const
 
         // fill the rest with zeros
         if (n_samples - offset < frame_size) {
-            std::fill(fft_in.begin() + (n_samples - offset), fft_in.end(), 0.0);
+            std::fill(fft_in.begin() + (n_samples - offset), fft_in.end(), 0.0f);
         }
 
         // FFT
@@ -3211,10 +3211,9 @@ static bool log_mel_spectrogram(
     {
         std::vector<std::thread> workers(n_threads - 1);
         for (int iw = 0; iw < n_threads - 1; ++iw) {
-            workers[iw] = std::thread(
-                    log_mel_spectrogram_worker_thread, iw + 1, hann, std::cref(samples_padded),
-                    n_samples + stage_2_pad, frame_size, frame_step, n_threads,
-                    std::cref(filters), std::ref(mel));
+            workers[iw] = std::thread([iw, hann, &samples_padded, n_samples, stage_2_pad, frame_size, frame_step, n_threads, &filters, &mel]() {
+                log_mel_spectrogram_worker_thread(iw + 1, hann, samples_padded, n_samples + stage_2_pad, frame_size, frame_step, n_threads, filters, mel);
+            });
         }
 
         // main thread

@@ -14,8 +14,11 @@
 #include <QFrame>
 #include <QTimer>
 #include <QScrollArea>
+#include <QFileDialog>
+#include <QStandardPaths>
 #include "../renderer/homein-renderer.hpp"
 #include "../audio/homein-audio.hpp"
+#include "../database/homein-importer.hpp"
 
 HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -126,9 +129,17 @@ void HomeInDock::SetupUI() {
     QPushButton *l_search_btn = new QPushButton("Find", this);
     l_search_layout->addWidget(l_search_btn);
     l_layout->addLayout(l_search_layout);
+
+    QHBoxLayout *l_options_layout = new QHBoxLayout();
     allow_web_checkbox = new QCheckBox("Web Search (LRCLIB)", this);
     allow_web_checkbox->setChecked(true);
-    l_layout->addWidget(allow_web_checkbox);
+    l_options_layout->addWidget(allow_web_checkbox);
+
+    QPushButton *import_btn = new QPushButton("📥 Import EasyWorship", this);
+    import_btn->setStyleSheet("font-weight: bold; color: #5294e2;");
+    l_options_layout->addWidget(import_btn);
+    l_layout->addLayout(l_options_layout);
+
     lyrics_result_view = new QTextEdit(this);
     lyrics_result_view->setReadOnly(true);
     l_layout->addWidget(lyrics_result_view);
@@ -177,6 +188,7 @@ void HomeInDock::SetupUI() {
         if (current_verse_index < (int)current_song_lines.size() - 1) { current_verse_index++; lyrics_result_view->setText(QString::fromStdString(current_song_lines[current_verse_index])); }
     });
     connect(queue_list, &QListWidget::itemDoubleClicked, this, &HomeInDock::UpdateOverlayFromSelection);
+    connect(import_btn, &QPushButton::clicked, this, &HomeInDock::OnImportEasyWorship);
 
     setLayout(main_layout);
 }
@@ -265,6 +277,25 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
 
     fullscreen_checkbox = new QCheckBox("Full Screen Mode", parent);
     d_layout->addWidget(fullscreen_checkbox);
+
+    // Automation Group
+    QGroupBox *auto_group = new QGroupBox("Intelligent Automation", parent);
+    QVBoxLayout *a_group_layout = new QVBoxLayout(auto_group);
+    
+    auto_switch_tabs_checkbox = new QCheckBox("Auto-Switch Tabs on Detection", parent);
+    auto_switch_tabs_checkbox->setChecked(auto_switch_tabs);
+    a_group_layout->addWidget(auto_switch_tabs_checkbox);
+
+    auto_search_checkbox = new QCheckBox("Auto-Search Databases", parent);
+    auto_search_checkbox->setChecked(auto_search);
+    a_group_layout->addWidget(auto_search_checkbox);
+
+    auto_push_checkbox = new QCheckBox("Auto-Push to Screen (1st Match)", parent);
+    auto_push_checkbox->setChecked(auto_push);
+    a_group_layout->addWidget(auto_push_checkbox);
+
+    layout->addWidget(auto_group);
+
     layout->addWidget(disp_group);
 
     // Audio Help Group
@@ -319,6 +350,10 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     };
     connect(align_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), update_s);
     connect(fullscreen_checkbox, &QCheckBox::toggled, update_s);
+    
+    connect(auto_switch_tabs_checkbox, &QCheckBox::toggled, [this](bool checked) { auto_switch_tabs = checked; });
+    connect(auto_search_checkbox, &QCheckBox::toggled, [this](bool checked) { auto_search = checked; });
+    connect(auto_push_checkbox, &QCheckBox::toggled, [this](bool checked) { auto_push = checked; });
 }
 
 void HomeInDock::AddToQueue() {
@@ -421,6 +456,24 @@ void HomeInDock::StopTranscription() {
     transcript_view->append("\n--- Listening Session Stopped ---");
 }
 
+void HomeInDock::OnImportEasyWorship() {
+    QStringList files = QFileDialog::getOpenFileNames(this, 
+        "Select EasyWorship (OpenLyrics) XML Files", 
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+        "OpenLyrics XML (*.xml)");
+
+    if (files.isEmpty()) return;
+
+    HomeInImporter importer(lyrics_engine.GetDB());
+    int count = 0;
+    for (const QString& file : files) {
+        count += importer.ImportFile(file);
+    }
+
+    QMessageBox::information(this, "Import Complete", 
+        QString("Successfully imported %1 songs into your local library.").arg(count));
+}
+
 void HomeInDock::PopulateTranslations() {
     std::vector<std::string> versions = bible_db.GetTranslations();
     bible_version_combo->clear();
@@ -451,27 +504,65 @@ void HomeInDock::SetFocusMode(FocusMode mode) {
 }
 
 void HomeInDock::CheckForLyrics(const std::string& text) {
-    if (current_focus == FocusMode::Bible) return; // Completely skip if focused on Bible
+    if (current_focus == FocusMode::Bible) return; 
+    if (!auto_search) return; 
+
     if (text.length() < 15) return;
     lyrics_engine.Search(text, false, [this](const std::vector<SongLyric>& results) {
-        if (!results.empty()) QMetaObject::invokeMethod(this, "ShowLyricsResults", Qt::QueuedConnection, Q_ARG(std::vector<SongLyric>, results));
+        if (!results.empty()) {
+            QMetaObject::invokeMethod(this, "ShowLyricsResults", Qt::QueuedConnection, Q_ARG(std::vector<SongLyric>, results));
+            
+            // [Automation] Load full song into queue in 2-line chunks
+            const auto& s = results[0];
+            QStringList lines = QString::fromStdString(s.content).split('\n', Qt::SkipEmptyParts);
+            
+            QMetaObject::invokeMethod(this, [this, lines]() {
+                for (int i = 0; i < lines.size(); i += 2) {
+                    QString chunk = lines[i];
+                    if (i + 1 < lines.size()) chunk += "\n" + lines[i+1];
+                    queue_list->addItem(chunk);
+                }
+            }, Qt::QueuedConnection);
+
+            if (auto_switch_tabs) {
+                QMetaObject::invokeMethod(tabs_widget, "setCurrentIndex", Qt::QueuedConnection, Q_ARG(int, 2)); // Tab 2 = Lyrics
+            }
+        }
     });
 }
 
 void HomeInDock::CheckForReferences(const std::string& text) {
-    if (current_focus == FocusMode::Songs) return; // Completely skip if focused on Songs
+    if (current_focus == FocusMode::Songs) return; 
+    if (!auto_search) return; 
+
     auto refs = ref_parser.Parse(text);
-    bool found_reference = false;
     std::string version = bible_version_combo->currentText().toStdString();
 
-    for (const auto& ref : refs) {
+    for (size_t i = 0; i < refs.size(); ++i) {
+        const auto& ref = refs[i];
         BibleVerse verse;
         if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start, version, verse)) {
-            ShowBibleSuggestion(verse.book_name, verse.chapter, verse.verse, verse.text);
-            found_reference = true;
+            // [Automation Logic]
+            if (i == 0) {
+                // First verse: Show preview and optionally push live
+                ShowBibleSuggestion(verse.book_name, verse.chapter, verse.verse, verse.text);
+                
+                if (auto_push) {
+                    HomeInRenderer* r = GetActiveRenderer();
+                    if (r) r->SetText(QString("%1 %2:%3\n%4").arg(QString::fromStdString(verse.book_name)).arg(verse.chapter).arg(verse.verse).arg(QString::fromStdString(verse.text)).toStdString());
+                }
+
+                if (auto_switch_tabs) {
+                    QMetaObject::invokeMethod(tabs_widget, "setCurrentIndex", Qt::QueuedConnection, Q_ARG(int, 1)); // Tab 1 = Bible
+                }
+            } else {
+                // Subsequent verses: Add to Queue for operator
+                QString qText = QString("%1 %2:%3: %4").arg(QString::fromStdString(verse.book_name)).arg(verse.chapter).arg(verse.verse).arg(QString::fromStdString(verse.text));
+                QMetaObject::invokeMethod(this, [this, qText]() { queue_list->addItem(qText); }, Qt::QueuedConnection);
+            }
         }
     }
-    if (!found_reference && text.length() > 20) PerformFuzzySearch(text);
+    if (refs.empty() && text.length() > 20) PerformFuzzySearch(text);
 }
 
 void HomeInDock::PerformFuzzySearch(const std::string& text) {

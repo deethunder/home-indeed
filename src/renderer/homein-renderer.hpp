@@ -57,11 +57,17 @@ private:
     void UpdateTexture();
 
     std::string current_text;
+    std::string pending_text;
     std::mutex text_mutex;
     std::atomic<bool> dirty{false};
     
     OverlaySettings settings;
     
+    // Transition state
+    float current_alpha = 0.0f;
+    float fade_speed = 0.04f; // ~0.5s fade duration
+    bool is_fading_out = false;
+
     // Graphics resources
     gs_texture_t *texture = nullptr;
     uint32_t width = 1920;

@@ -28,6 +28,12 @@ HomeInRefParser::HomeInRefParser() {
         R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)\s+(?:chapter\s+)?(\d+)\s*(?::|verse\s+)\s*(\d+)(?:\s*-\s*(\d+))?\b)", 
         std::regex_constants::icase
     );
+
+    // [New] Conversational Verse Regex: matches "verse 16", "v. 16", "vs 16"
+    conversational_verse_regex = std::regex(
+        R"(\b(?:verse|v|vs|vrt)\.?\s*(\d+)(?:\s*-\s*(\d+))?\b)",
+        std::regex_constants::icase
+    );
 }
 
 HomeInRefParser::~HomeInRefParser() {}
@@ -35,6 +41,7 @@ HomeInRefParser::~HomeInRefParser() {}
 std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
     std::vector<BibleRef> results;
     
+    // 1. Standard Reference Parsing (John 3:16)
     auto words_begin = std::sregex_iterator(text.begin(), text.end(), standard_ref_regex);
     auto words_end = std::sregex_iterator();
 
@@ -42,42 +49,56 @@ std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
         std::smatch match = *i;
         std::string book_candidate = match[1].str();
         
-        // --- Validation Step ---
-        // Clean up the book name (remove trailing spaces, normalize case for lookup)
+        // Clean up and validate book name
         std::string clean_book = book_candidate;
-        // Trim trailing space
         clean_book.erase(std::find_if(clean_book.rbegin(), clean_book.rend(), [](unsigned char ch) {
             return !std::isspace(ch);
         }).base(), clean_book.end());
 
-        bool is_valid = false;
         std::string found_name;
         for (const auto& book : BIBLE_BOOKS) {
             if (_stricmp(clean_book.c_str(), book.c_str()) == 0) {
-                is_valid = true;
                 found_name = book;
                 break;
             }
         }
 
-        if (!is_valid) continue;
+        if (found_name.empty()) continue;
 
         BibleRef ref;
         ref.original_text = match.str();
         ref.book = found_name;
         ref.chapter = std::stoi(match[2].str());
         ref.verse_start = std::stoi(match[3].str());
-        
-        if (match[4].matched) {
-            ref.verse_end = std::stoi(match[4].str());
-        } else {
-            ref.verse_end = ref.verse_start;
-        }
-
-        // Confidence logic: Exact dictionary match boosts confidence
+        ref.verse_end = match[4].matched ? std::stoi(match[4].str()) : ref.verse_start;
         ref.confidence = 0.95f; 
 
+        // Update Context
+        last_book = ref.book;
+        last_chapter = ref.chapter;
+
         results.push_back(ref);
+    }
+
+    // 2. Intelligent Contextual Parsing ("verse 16")
+    // Only if no standard references were found in this chunk
+    if (results.empty() && !last_book.empty()) {
+        auto conv_begin = std::sregex_iterator(text.begin(), text.end(), conversational_verse_regex);
+        for (std::sregex_iterator i = conv_begin; i != words_end; ++i) {
+            std::smatch match = *i;
+            
+            BibleRef ref;
+            ref.original_text = match.str();
+            ref.book = last_book;
+            ref.chapter = last_chapter;
+            ref.verse_start = std::stoi(match[1].str());
+            ref.verse_end = match[2].matched ? std::stoi(match[2].str()) : ref.verse_start;
+            
+            // Lower confidence because it's contextual
+            ref.confidence = 0.85f; 
+            
+            results.push_back(ref);
+        }
     }
 
     return results;

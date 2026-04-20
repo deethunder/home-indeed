@@ -76,9 +76,9 @@ void HomeInSTTEngine::RunLoop() {
             continue;
         }
 
-        // Collect samples from the buffer
-        if (audio->GetBufferedCount() < WHISPER_SAMPLE_RATE * 2) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // [Sub-Second Latency] Reduced from 1s to 500ms for ultra-fast response
+        if (audio->GetBufferedCount() < WHISPER_SAMPLE_RATE / 2) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
 
@@ -88,9 +88,21 @@ void HomeInSTTEngine::RunLoop() {
         // Append to our local processing buffer
         pcmf32.insert(pcmf32.end(), latest_samples.begin(), latest_samples.end());
 
-        // Limit local buffer to 30 seconds
-        if (pcmf32.size() > WHISPER_SAMPLE_RATE * 30) {
-            pcmf32.erase(pcmf32.begin(), pcmf32.begin() + (pcmf32.size() - WHISPER_SAMPLE_RATE * 30));
+        // [Sliding Window] Keep 3 seconds of context to ensure accuracy for 500ms chunks
+        const int context_size = WHISPER_SAMPLE_RATE * 3;
+        if (pcmf32.size() > context_size) {
+            pcmf32.erase(pcmf32.begin(), pcmf32.begin() + (pcmf32.size() - context_size));
+        }
+
+        // [VAD] Root Mean Square (RMS) calculation to skip silence and save CPU
+        float sum = 0;
+        for (float s : latest_samples) sum += s * s;
+        float rms = sqrtf(sum / latest_samples.size());
+        
+        // Skip Whisper if the audio is essentially silent (-40dB approx)
+        if (rms < 0.01f) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            continue;
         }
 
         if (whisper_full(ctx, wparams, pcmf32.data(), (int)pcmf32.size()) != 0) {
@@ -106,10 +118,16 @@ void HomeInSTTEngine::RunLoop() {
         }
 
         if (!full_text.empty() && on_transcript) {
-            on_transcript(full_text, false);
+            // Cleanup and emit
+            full_text.erase(0, full_text.find_first_not_of(" \t\n\r"));
+            full_text.erase(full_text.find_last_not_of(" \t\n\r") + 1);
+            
+            if (!full_text.empty()) {
+                on_transcript(full_text, false);
+            }
         }
 
-        // Sleep briefly to avoid 100% CPU pinning between chunks
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        // Low sleep for low latency
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 }

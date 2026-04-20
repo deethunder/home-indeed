@@ -1,8 +1,14 @@
 #include "homein-lyrics-engine.hpp"
-#include <obs-module.h>
 #include <thread>
+#include <obs-module.h>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QUrlQuery>
+#include <QEventLoop>
 
-HomeInLyricsEngine::HomeInLyricsEngine() {}
+HomeInLyricsEngine::HomeInLyricsEngine() : QObject(nullptr) {}
 
 HomeInLyricsEngine::~HomeInLyricsEngine() {}
 
@@ -11,16 +17,14 @@ bool HomeInLyricsEngine::Initialize(const std::string& db_path) {
 }
 
 void HomeInLyricsEngine::Search(const std::string& query, bool allow_web, SearchCallback callback) {
-    // 1. Search Local DB First
     auto local_results = local_db.Search(query);
-    
     if (!local_results.empty()) {
         callback(local_results);
         return;
     }
 
-    // 2. Search Web if allowed and no local results
     if (allow_web) {
+        // Run network query on a separate thread to avoid blocking STT loop
         std::thread([this, query, callback]() {
             FetchFromLRCLIB(query, callback);
         }).detach();
@@ -30,29 +34,50 @@ void HomeInLyricsEngine::Search(const std::string& query, bool allow_web, Search
 }
 
 void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query, SearchCallback callback) {
-    // In a final production build, we would use libcurl here. 
-    // For the current implementation step, we'll implement a clean skeleton 
-    // that uses a placeholder result to demonstrate the UI-Engine connection.
-    
-    blog(LOG_INFO, "Simulating LRCLIB search for: %s", query.c_str());
-    
-    // Simulating a network delay
-    std::this_thread::sleep_for(std::chrono::milliseconds(800));
-    
+    QUrl url("https://lrclib.net/api/search");
+    QUrlQuery q;
+    q.addQueryItem("q", QString::fromStdString(query));
+    url.setQuery(q);
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "HomeIndeed/1.0 (OBS Plugin)");
+
+    // Since we are in a worker thread, we use a local event loop to wait for response
+    QEventLoop loop;
+    QNetworkReply* reply = network_manager.get(request);
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
     std::vector<SongLyric> results;
-    // Example result for testing
-    if (query.find("Amazing Grace") != std::string::npos) {
-        SongLyric s;
-        s.id = 0;
-        s.title = "Amazing Grace";
-        s.artist = "Chris Tomlin Version";
-        s.content = "Amazing grace how sweet the sound\nThat saved a wretch like me\nI once was lost but now am found\nWas blind but now I see";
-        s.source = "LRCLIB";
-        results.push_back(s);
-        
-        // Auto-cache to local DB
-        local_db.AddSong(s.title, s.artist, s.content, s.source);
+    if (reply->error() == QNetworkReply::NoError) {
+        QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        QJsonArray arr = doc.array();
+
+        for (int i = 0; i < arr.size(); ++i) {
+            QJsonObject obj = arr[i].toObject();
+            SongLyric s;
+            s.id = 0;
+            s.title = obj["name"].toString().toStdString();
+            s.artist = obj["artistName"].toString().toStdString();
+            
+            // Prefer plain lyrics, fallback to synced
+            if (obj.contains("plainLyrics")) {
+                s.content = obj["plainLyrics"].toString().toStdString();
+            } else if (obj.contains("syncedLyrics")) {
+                s.content = obj["syncedLyrics"].toString().toStdString();
+            }
+            
+            s.source = "LRCLIB";
+            if (!s.content.empty()) {
+                results.push_back(s);
+                local_db.AddSong(s.title, s.artist, s.content, s.source);
+            }
+            if (i >= 5) break; // Limit to top 5 online results
+        }
+    } else {
+        blog(LOG_ERROR, "LRCLIB query failed: %s", reply->errorString().toStdString().c_str());
     }
-    
+
+    reply->deleteLater();
     callback(results);
 }

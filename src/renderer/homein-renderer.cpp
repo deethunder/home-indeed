@@ -64,8 +64,8 @@ HomeInRenderer::~HomeInRenderer() {
 void HomeInRenderer::SetText(const std::string& text) {
     std::lock_guard<std::mutex> lock(text_mutex);
     if (current_text != text) {
-        current_text = text;
-        dirty = true;
+        pending_text = text;
+        is_fading_out = true; // Trigger fade-out before swapping
     }
 }
 
@@ -145,9 +145,28 @@ void HomeInRenderer::UpdateTexture() {
 void HomeInRenderer::Render(gs_effect_t* effect) {
     UNUSED_PARAMETER(effect);
 
+    // --- Transition Logic ---
+    {
+        std::lock_guard<std::mutex> lock(text_mutex);
+        if (is_fading_out) {
+            current_alpha -= fade_speed;
+            if (current_alpha <= 0.0f) {
+                current_alpha = 0.0f;
+                is_fading_out = false;
+                current_text = pending_text; // Swap text at bottom of fade
+                dirty = true;
+            }
+        } else if (!current_text.empty()) {
+            if (current_alpha < 1.0f) current_alpha += fade_speed;
+            if (current_alpha > 1.0f) current_alpha = 1.0f;
+        } else if (current_text.empty() && current_alpha > 0.0f) {
+            current_alpha -= fade_speed;
+        }
+    }
+
     UpdateTexture();
 
-    if (!texture) return;
+    if (!texture || current_alpha <= 0.0f) return;
 
     // Draw the generated texture to the OBS scene
     gs_effect_t *default_effect = obs_get_base_effect(OBS_EFFECT_DEFAULT);
@@ -158,6 +177,12 @@ void HomeInRenderer::Render(gs_effect_t* effect) {
             gs_technique_begin_pass(tech, i);
             
             gs_effect_set_texture(gs_effect_get_param_by_name(default_effect, "image"), texture);
+            
+            // Apply Alpha Fade natively
+            struct vec4 color;
+            vec4_set(&color, current_alpha, current_alpha, current_alpha, current_alpha);
+            gs_effect_set_vec4(gs_effect_get_param_by_name(default_effect, "color"), &color);
+
             gs_draw_sprite(texture, 0, width, height);
 
             gs_technique_end_pass(tech);

@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.28...3.30)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCOPE)
 
@@ -44,6 +46,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   src/dock/homein-dock.cpp
   src/database/homein-db.cpp
   src/database/homein-lyrics-db.cpp
+  src/database/homein-importer.cpp
   src/detection/homein-ref-parser.cpp
   src/detection/homein-lyrics-engine.cpp
   src/updater/homein-updater.cpp

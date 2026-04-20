@@ -53,6 +53,7 @@ private slots:
     void UpdateAudioTest();
     void OnToggleMic();
     void OnTogglePause();
+    void OnImportEasyWorship();
     void SetFocusMode(FocusMode mode);
 
 private:
@@ -105,6 +106,14 @@ private:
     QComboBox *align_combo;
     QCheckBox *fullscreen_checkbox;
     QComboBox *bible_version_combo;
+
+    // Automation Settings
+    QCheckBox *auto_switch_tabs_checkbox;
+    QCheckBox *auto_search_checkbox;
+    QCheckBox *auto_push_checkbox;
+    bool auto_switch_tabs = true;
+    bool auto_search = true;
+    bool auto_push = true;
 
     // Testing UI
     QProgressBar *audio_level_bar;

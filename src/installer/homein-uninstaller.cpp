@@ -88,15 +88,6 @@ private:
             if (!dir.removeRecursively()) success = false;
         }
 
-        progressBar->setValue(80);
-        statusLabel->setText("Removing Shortcuts...");
-
-        // Remove Start Menu
-        QString smPath = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation) + "/Home Indeed";
-        if (QDir(smPath).exists()) {
-            QDir(smPath).removeRecursively();
-        }
-
         progressBar->setValue(100);
         if (success) {
             statusLabel->setText("Uninstall Complete!");

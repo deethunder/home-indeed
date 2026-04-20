@@ -42,8 +42,6 @@ private:
     QLabel *logoLabel;
     QLabel *statusLabel;
     QLineEdit *pathEdit;
-    QCheckBox *desktopShortcut;
-    QCheckBox *startMenuShortcut;
     QProgressBar *progressBar;
     QPushButton *installButton;
     QString obsPath;
@@ -93,14 +91,6 @@ private:
         pathLayout->addWidget(browseButton);
         layout->addLayout(pathLayout);
 
-        // Options
-        desktopShortcut = new QCheckBox("Create Desktop Shortcut to Data Folder", this);
-        desktopShortcut->setChecked(true);
-        startMenuShortcut = new QCheckBox("Add to Start Menu", this);
-        startMenuShortcut->setChecked(true);
-        layout->addWidget(desktopShortcut);
-        layout->addWidget(startMenuShortcut);
-
         // Progress
         progressBar = new QProgressBar(this);
         progressBar->setRange(0, 100);
@@ -146,28 +136,6 @@ private:
             obsPath = dir;
             pathEdit->setText(obsPath);
         }
-    }
-
-    bool createLink(LPCWSTR lpszPathObj, LPCWSTR lpszPathLink, LPCWSTR lpszDesc) {
-        HRESULT hres;
-        IShellLink* psl;
-
-        CoInitialize(NULL);
-        hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (LPVOID*)&psl);
-        if (SUCCEEDED(hres)) {
-            psl->SetPath(lpszPathObj);
-            psl->SetDescription(lpszDesc);
-
-            IPersistFile* ppf;
-            hres = psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf);
-            if (SUCCEEDED(hres)) {
-                hres = ppf->Save(lpszPathLink, TRUE);
-                ppf->Release();
-            }
-            psl->Release();
-        }
-        CoUninitialize();
-        return SUCCEEDED(hres);
     }
 
     void onInstall() {
@@ -251,42 +219,9 @@ private:
             statusLabel->setText("Models missing - plugin will require manual model download.");
         }
 
-        progressBar->setValue(80);
-
-        // 3. Create Shortcuts
-        if (desktopShortcut->isChecked() || startMenuShortcut->isChecked()) {
-            statusLabel->setText("Creating shortcuts...");
-            WCHAR desktopPath[MAX_PATH];
-            SHGetSpecialFolderPathW(NULL, desktopPath, CSIDL_DESKTOPDIRECTORY, FALSE);
-            
-            std::wstring dataPathStr = QDir::toNativeSeparators(dataPath).toStdWString();
-            
-            if (desktopShortcut->isChecked()) {
-                std::wstring obsExePath = QDir::toNativeSeparators(obsPath + "/bin/64bit/obs64.exe").toStdWString();
-                std::wstring linkPath = std::wstring(desktopPath) + L"\\Home Indeed.lnk";
-                createLink(obsExePath.c_str(), linkPath.c_str(), L"Home Indeed - Launch OBS with AI Overlay");
-            }
-            
-            if (startMenuShortcut->isChecked()) {
-                WCHAR startMenuPath[MAX_PATH];
-                SHGetSpecialFolderPathW(NULL, startMenuPath, CSIDL_PROGRAMS, FALSE);
-                std::wstring linkPath = std::wstring(startMenuPath) + L"\\Home Indeed.lnk";
-                std::wstring obsExePath = QDir::toNativeSeparators(obsPath + "/bin/64bit/obs64.exe").toStdWString();
-                createLink(obsExePath.c_str(), linkPath.c_str(), L"Home Indeed - Launch OBS with AI Overlay");
-
-                // Uninstaller shortcut in Start Menu
-                QString smFolder = QString::fromWCharArray(startMenuPath) + "/Home Indeed";
-                QDir().mkpath(smFolder);
-                QString uninstallerDest = dataPath + "/Home-Indeed-Uninstaller.exe";
-                if (QFile::exists(uninstallerDest)) {
-                    QFile::link(uninstallerDest, smFolder + "/Uninstall Home Indeed.lnk");
-                }
-            }
-        }
-
         progressBar->setValue(100);
         statusLabel->setText("Installation Complete!");
-        QMessageBox::information(this, "Success", "Home Indeed has been successfully installed.\n\nShortcuts have been created to your data folder.");
+        QMessageBox::information(this, "Success", "Home Indeed has been successfully installed.\n\nYou can now find it inside OBS Studio under 'Tools' or the Dock menu.");
         
         if (QMessageBox::question(this, "Launch OBS", "Would you like to launch OBS Studio now?", QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
             QProcess::startDetached(obsPath + "/bin/64bit/obs64.exe", QStringList(), obsPath + "/bin/64bit");

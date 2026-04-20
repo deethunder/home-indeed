@@ -29,7 +29,7 @@ void HomeInLyricsDB::Close() {
 bool HomeInLyricsDB::AddSong(const std::string& title, const std::string& artist, const std::string& content, const std::string& source) {
     if (!db) return false;
 
-    const char* sql = "INSERT INTO lyrics (title, artist, content, source) VALUES (?, ?, ?, ?)";
+    const char* sql = "INSERT OR REPLACE INTO lyrics (title, artist, content, source) VALUES (?, ?, ?, ?)";
     sqlite3_stmt* stmt;
     
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
