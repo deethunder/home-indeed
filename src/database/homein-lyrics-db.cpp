@@ -19,6 +19,7 @@ bool HomeInLyricsDB::Open(const std::string& db_path) {
     }
 
     ValidateDatabase();
+    EnsureSchema();
     return true;
 }
 
@@ -41,6 +42,25 @@ void HomeInLyricsDB::ValidateDatabase() {
     }
     
     blog(LOG_INFO, "=== End Diagnostic ===");
+}
+
+void HomeInLyricsDB::EnsureSchema() {
+    if (!db) return;
+    const char* sql =
+        "CREATE TABLE IF NOT EXISTS lyrics ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  title TEXT NOT NULL,"
+        "  artist TEXT,"
+        "  content TEXT NOT NULL,"
+        "  source TEXT"
+        ");"
+        "CREATE VIRTUAL TABLE IF NOT EXISTS lyrics_fts "
+        "USING fts5(title, content, content=lyrics, content_rowid=id);";
+    char* err = nullptr;
+    if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
+        blog(LOG_ERROR, "HomeIndeed: Failed to create lyrics schema: %s", err);
+        sqlite3_free(err);
+    }
 }
 
 void HomeInLyricsDB::Close() {

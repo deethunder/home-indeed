@@ -22,69 +22,43 @@ void HomeInLyricsEngine::Search(const std::string& query, bool allow_web, Search
         callback(local_results);
         return;
     }
-
     if (allow_web) {
-        // Run network query on a separate thread to avoid blocking STT loop
-        std::thread([this, query, callback]() {
-            FetchFromLRCLIB(query, callback);
-        }).detach();
+        QUrl url("https://lrclib.net/api/search");
+        QUrlQuery q;
+        q.addQueryItem("q", QString::fromStdString(query));
+        url.setQuery(q);
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::UserAgentHeader, "HomeIndeed/1.0");
+
+        QNetworkReply* reply = network_manager.get(request);
+        // Use a lambda connection — fires on Qt main thread automatically
+        connect(reply, &QNetworkReply::finished, this, [this, reply, callback]() {
+            std::vector<SongLyric> results;
+            if (reply->error() == QNetworkReply::NoError) {
+                QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+                QJsonArray arr = doc.array();
+                for (int i = 0; i < std::min((int)arr.size(), 5); ++i) {
+                    QJsonObject obj = arr[i].toObject();
+                    SongLyric s;
+                    s.title = obj["name"].toString().toStdString();
+                    s.artist = obj["artistName"].toString().toStdString();
+                    s.content = obj.contains("plainLyrics")
+                        ? obj["plainLyrics"].toString().toStdString()
+                        : obj["syncedLyrics"].toString().toStdString();
+                    s.source = "LRCLIB";
+                    if (!s.content.empty()) {
+                        results.push_back(s);
+                        local_db.AddSong(s.title, s.artist, s.content, s.source);
+                    }
+                }
+                if (!results.empty()) local_db.RebuildFTS();
+            } else {
+                blog(LOG_ERROR, "LRCLIB failed: %s", reply->errorString().toStdString().c_str());
+            }
+            reply->deleteLater();
+            callback(results);
+        });
     } else {
         callback({});
     }
-}
-
-void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query, SearchCallback callback) {
-    QUrl url("https://lrclib.net/api/search");
-    QUrlQuery q;
-    q.addQueryItem("q", QString::fromStdString(query));
-    url.setQuery(q);
-
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "HomeIndeed/1.0 (OBS Plugin)");
-
-    // Since we are in a worker thread, we use a local event loop to wait for response
-    QEventLoop loop;
-    QNetworkReply* reply = network_manager.get(request);
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-    loop.exec();
-
-    std::vector<SongLyric> results;
-    if (reply->error() == QNetworkReply::NoError) {
-        QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-        QJsonArray arr = doc.array();
-
-        for (int i = 0; i < arr.size(); ++i) {
-            QJsonObject obj = arr[i].toObject();
-            SongLyric s;
-            s.id = 0;
-            s.title = obj["name"].toString().toStdString();
-            s.artist = obj["artistName"].toString().toStdString();
-            
-            // Prefer plain lyrics, fallback to synced
-            if (obj.contains("plainLyrics")) {
-                s.content = obj["plainLyrics"].toString().toStdString();
-            } else if (obj.contains("syncedLyrics")) {
-                s.content = obj["syncedLyrics"].toString().toStdString();
-            }
-            
-            s.source = "LRCLIB";
-            if (!s.content.empty()) {
-                results.push_back(s);
-                local_db.AddSong(s.title, s.artist, s.content, s.source);
-            }
-            if (i >= 5) break; // Limit to top 5 online results
-        }
-    } else {
-        blog(LOG_ERROR, "LRCLIB query failed: %s", reply->errorString().toStdString().c_str());
-    }
-
-    reply->deleteLater();
-    
-    // Rebuild FTS index so cached songs are findable locally next time
-    if (!results.empty()) {
-        local_db.RebuildFTS();
-        blog(LOG_INFO, "HomeIndeed: Cached %d songs from LRCLIB for offline use", (int)results.size());
-    }
-    
-    callback(results);
 }

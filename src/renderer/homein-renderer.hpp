@@ -37,6 +37,8 @@ public:
     void Render(gs_effect_t *effect);
     void UpdateSettings(const OverlaySettings& settings);
 
+    void PrepareTexture();
+
     uint32_t GetWidth() const { return width; }
     uint32_t GetHeight() const { return height; }
 
@@ -50,6 +52,9 @@ private:
     std::string pending_text;
     std::mutex text_mutex;
     std::atomic<bool> dirty{false};
+    
+    QImage pending_image;
+    std::atomic<bool> image_ready{false};
     
     OverlaySettings settings;
     

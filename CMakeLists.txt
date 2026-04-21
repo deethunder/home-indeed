@@ -63,6 +63,26 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
+if(WIN32)
+    set(OBS_DATA_DIR "${CMAKE_BINARY_DIR}/rundir/data/obs-plugins/home-indeed")
+else()
+    set(OBS_DATA_DIR "${CMAKE_BINARY_DIR}/rundir/data/obs-plugins/home-indeed")
+endif()
+
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${OBS_DATA_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/data/homein-bible.db"
+        "${OBS_DATA_DIR}/homein-bible.db"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/data/homein-lyrics.db"
+        "${OBS_DATA_DIR}/homein-lyrics.db"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/data/models"
+        "${OBS_DATA_DIR}/models"
+    COMMENT "Copying Home Indeed data files to OBS plugin directory..."
+)
+
 # --- Packaging Logic (Phase 5: Polish) ---
 set(CPACK_PACKAGE_NAME "Home Indeed")
 set(CPACK_PACKAGE_VENDOR "Home Indeed Team")

@@ -22,6 +22,7 @@ public:
 
     bool Open(const std::string& db_path);
     void Close();
+    bool IsOpen() const { return db != nullptr; }
 
     /**
      * @brief Adds a song to the local cache.
@@ -49,5 +50,6 @@ public:
     void ValidateDatabase();
 
 private:
+    void EnsureSchema();
     sqlite3* db = nullptr;
 };

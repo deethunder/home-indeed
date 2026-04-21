@@ -67,7 +67,7 @@ void HomeInSTTEngine::RunLoop() {
     wparams.print_progress = false;
     wparams.language = "en";
     wparams.translate = false;
-    wparams.no_context = false;        // Keep context for better continuity
+    wparams.no_context = true;        // Keep context for better continuity
     wparams.single_segment = true;     // Better for real-time live captioning
     wparams.suppress_blank = true;     // Suppress [BLANK_AUDIO] at model level
     wparams.suppress_nst = true;       // Suppress non-speech tokens
@@ -98,8 +98,8 @@ void HomeInSTTEngine::RunLoop() {
         // Append to our local processing buffer
         pcmf32.insert(pcmf32.end(), latest_samples.begin(), latest_samples.end());
 
-        // [Sliding Window] Keep 3 seconds of context to ensure accuracy for 500ms chunks
-        const int context_size = WHISPER_SAMPLE_RATE * 3;
+        // [Sliding Window] Keep 2 seconds of context to ensure accuracy for 500ms chunks
+        const int context_size = WHISPER_SAMPLE_RATE * 2;
         if (pcmf32.size() > context_size) {
             pcmf32.erase(pcmf32.begin(), pcmf32.begin() + (pcmf32.size() - context_size));
         }
@@ -110,7 +110,7 @@ void HomeInSTTEngine::RunLoop() {
         float rms = sqrtf(sum / latest_samples.size());
         
         // Skip Whisper if the audio is essentially silent (increased threshold for stability)
-        if (rms < 0.025f) {
+        if (rms < 0.008f) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
@@ -144,7 +144,7 @@ void HomeInSTTEngine::RunLoop() {
             full_text.erase(full_text.find_last_not_of(" \t\n\r") + 1);
             
             // [De-Stutter Filter] Prevent looped hallucinations (repeating the same small phrase)
-            if (full_text == last_emitted_text && full_text.length() < 15) {
+            if (full_text == last_emitted_text && full_text.length() < 40) {
                 continue; 
             }
 

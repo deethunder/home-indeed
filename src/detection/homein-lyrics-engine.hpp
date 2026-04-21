@@ -5,7 +5,7 @@
 #include <functional>
 #include <QObject>
 #include <QNetworkAccessManager>
-#include "database/homein-lyrics-db.hpp"
+#include "../database/homein-lyrics-db.hpp"
 
 /**
  * @brief Orchestrates lyrics lookup and caching.
@@ -22,6 +22,7 @@ public:
 
     bool Initialize(const std::string& db_path);
     HomeInLyricsDB& GetDB() { return local_db; }
+    bool IsDBOpen() const { return local_db.IsOpen(); }
 
     /**
      * @brief Searches for lyrics. First checks local DB, then hits web API if allowed.
@@ -29,7 +30,6 @@ public:
     void Search(const std::string& query, bool allow_web, SearchCallback callback);
 
 private:
-    void FetchFromLRCLIB(const std::string& query, SearchCallback callback);
 
     HomeInLyricsDB local_db;
     QNetworkAccessManager network_manager;

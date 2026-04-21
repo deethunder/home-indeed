@@ -53,6 +53,7 @@ function Package {
         ErrorAction = 'SilentlyContinue'
         Path = @(
             "${ProjectRoot}/release/${ProductName}-*-windows-*.zip"
+            "${ProjectRoot}/release/${ProductName}-*-windows-*.exe"
         )
     }
 
@@ -66,6 +67,20 @@ function Package {
         Verbose = ($Env:CI -ne $null)
     }
     Compress-Archive -Force @CompressArgs
+
+    # --- Bundle the custom .exe installer into the release ---
+    Log-Group "Packaging installer .exe..."
+    $BuildDir = "${ProjectRoot}/build_${Target}"
+    $InstallerExe = Get-ChildItem -Path "${BuildDir}" -Recurse -Filter "Home-Indeed-Installer.exe" -ErrorAction SilentlyContinue | Where-Object { $_.DirectoryName -like "*${Configuration}*" -or $_.DirectoryName -like "*Release*" } | Select-Object -First 1
+
+    if ($InstallerExe) {
+        $ExeOutputName = "${ProductName}-${ProductVersion}-windows-${Target}.exe"
+        Copy-Item -Path $InstallerExe.FullName -Destination "${ProjectRoot}/release/${ExeOutputName}" -Force
+        Write-Host "  => Installer .exe packaged: ${ExeOutputName}" -ForegroundColor Green
+    } else {
+        Write-Warning "Home-Indeed-Installer.exe not found in build directory. Skipping .exe packaging."
+    }
+
     Log-Group
 }
 

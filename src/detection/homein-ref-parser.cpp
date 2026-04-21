@@ -84,7 +84,8 @@ std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
     // Only if no standard references were found in this chunk
     if (results.empty() && !last_book.empty()) {
         auto conv_begin = std::sregex_iterator(text.begin(), text.end(), conversational_verse_regex);
-        for (std::sregex_iterator i = conv_begin; i != words_end; ++i) {
+        auto conv_end = std::sregex_iterator();
+        for (std::sregex_iterator i = conv_begin; i != conv_end; ++i) {
             std::smatch match = *i;
             
             BibleRef ref;

@@ -148,19 +148,18 @@ int HomeInImporter::ImportFromEW7(const QString& db_path) {
 }
 
 QString HomeInImporter::StripRTF(const QString& rtf) {
-    if (!rtf.contains("{\\rtf1")) return rtf; // Not RTF
-
+    if (!rtf.contains("{\\rtf")) return rtf;
+    
     QString out = rtf;
-    // 1. Remove control words (e.g. \fonttbl, \colortbl)
-    // Simple regex for RTF tags: anything starting with \ and ended by a space or another \ or { or }
-    static QRegularExpression re("\\\\[a-z0-9]+ ?");
-    out.remove(re);
-
-    // 2. Remove group braces
+    // Remove RTF header and control groups
+    out.remove(QRegularExpression("\\{\\\\[^}]*\\}"));
+    // Remove all RTF control words (case-insensitive, with optional numeric param)
+    out.remove(QRegularExpression("\\\\[a-zA-Z]+[-]?[0-9]*\\s?"));
+    // Remove remaining braces
     out.remove("{");
     out.remove("}");
-
-    // 3. Clean up whitespace and newlines
+    // Normalize line breaks
+    out.replace(QRegularExpression("\\s*\\\\par\\s*", QRegularExpression::CaseInsensitiveOption), "\n");
     out = out.trimmed();
     return out;
 }

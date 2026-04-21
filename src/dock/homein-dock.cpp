@@ -32,8 +32,13 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     }
 
     char *lyrics_db_path = obs_module_file("homein-lyrics.db");
+    if (!lyrics_db_path) {
+        blog(LOG_WARNING, "HomeIndeed: homein-lyrics.db not found in module data, trying fallback...");
+    }
     if (lyrics_db_path) {
-        lyrics_engine.Initialize(lyrics_db_path);
+        if (!lyrics_engine.Initialize(lyrics_db_path)) {
+            blog(LOG_ERROR, "HomeIndeed: Failed to initialize lyrics DB!");
+        }
         bfree(lyrics_db_path);
     }
 
@@ -57,7 +62,9 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
             QDesktopServices::openUrl(QUrl(url));
         }
     });
-    updater.CheckForUpdates("DeeThunder/Home-Indeed");
+    QTimer::singleShot(3000, this, [this]() {
+        updater.CheckForUpdates("DeeThunder/Home-Indeed");
+    });
 }
 
 HomeInDock::~HomeInDock() {
@@ -322,8 +329,6 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     QHBoxLayout *v_layout = new QHBoxLayout();
     v_layout->addWidget(new QLabel("Bible Version:", parent));
     bible_version_combo = new QComboBox(parent);
-    bible_version_combo->addItem("King James Version (KJV)");
-    bible_version_combo->addItem("New Intl Version (NIV) - Requires Data");
     v_layout->addWidget(bible_version_combo);
     d_layout->addLayout(v_layout);
 
@@ -468,6 +473,9 @@ void HomeInDock::ToggleSettings() {
 }
 
 void HomeInDock::UpdateAudioTest() {
+    HomeInRenderer* r = GetActiveRenderer();
+    if (r) r->PrepareTexture();
+
     HomeInAudioHandler* handler = GetAudioHandler();
     if (handler) {
         float level = handler->GetLastLevel();
@@ -532,6 +540,13 @@ void HomeInDock::StopTranscription() {
 }
 
 void HomeInDock::OnImportEasyWorship() {
+    if (!lyrics_engine.IsDBOpen()) {
+        QMessageBox::critical(this, "Import Error",
+            "Lyrics database is not initialized.\n"
+            "Please check that homein-lyrics.db exists in the plugin data folder.");
+        return;
+    }
+
     QMessageBox::StandardButton reply = QMessageBox::question(this, "Import Option", 
         "Would you like to sync DIRECTLY from your EasyWorship database (Fastest)?",
         QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
@@ -594,7 +609,7 @@ void HomeInDock::OnChapterSelected() {
     if (!btn) return;
     int chapter = btn->text().toInt();
     
-    std::string version = bible_version_combo->currentText().toStdString();
+    std::string version = bible_version_combo->currentData().toString().toStdString();
     BibleVerse verse;
     if (bible_db.GetVerse(current_search_book, chapter, 1, version, verse)) {
         ShowBibleSuggestion(verse.book_name, verse.chapter, verse.verse, verse.text);
@@ -617,7 +632,8 @@ void HomeInDock::PopulateTranslations() {
     std::vector<std::string> versions = bible_db.GetTranslations();
     bible_version_combo->clear();
     for (const auto& v : versions) {
-        bible_version_combo->addItem(QString::fromStdString(v));
+        QString abbr = QString::fromStdString(v);
+        bible_version_combo->addItem(abbr, abbr);
     }
     // Set default to KJV if available
     int idx = bible_version_combo->findText("KJV");
@@ -675,7 +691,7 @@ void HomeInDock::CheckForReferences(const std::string& text) {
     if (!auto_search) return; 
 
     auto refs = ref_parser.Parse(text);
-    std::string version = bible_version_combo->currentText().toStdString();
+    std::string version = bible_version_combo->currentData().toString().toStdString();
 
     for (size_t i = 0; i < refs.size(); ++i) {
         const auto& ref = refs[i];

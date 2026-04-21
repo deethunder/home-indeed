@@ -218,20 +218,20 @@ std::vector<BibleVerse> HomeInDB::SearchVerses(const std::string& query, int lim
     std::vector<BibleVerse> results;
     if (!db) return results;
 
-    // We skip MATCH because we can't be sure the user has a VIRTUAL FTS table named 'verses'
-    // Instead, we use LIKE for maximum compatibility across all SQLite databases.
-    const char* sql = 
-        "SELECT v.text, b.name, t.abbreviation, CAST(v.chapter AS INTEGER), CAST(v.verse AS INTEGER) "
+    // Use FTS5 MATCH — this is what the index was built for
+    const char* sql =
+        "SELECT v.text, b.name, t.abbreviation, "
+        "CAST(v.chapter AS INTEGER), CAST(v.verse AS INTEGER) "
         "FROM verses v "
         "JOIN books b ON v.book_id = b.id "
         "JOIN translations t ON v.translation_id = t.id "
-        "WHERE v.text LIKE ? "
+        "WHERE verses MATCH ? "
+        "ORDER BY rank "
         "LIMIT ?";
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        std::string pattern = "%" + query + "%";
-        sqlite3_bind_text(stmt, 1, pattern.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 1, query.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 2, limit);
 
         while (sqlite3_step(stmt) == SQLITE_ROW) {
