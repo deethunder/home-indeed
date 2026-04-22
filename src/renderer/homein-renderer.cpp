@@ -111,33 +111,93 @@ void HomeInRenderer::PrepareTexture() {
         painter.setRenderHint(QPainter::Antialiasing);
         painter.setRenderHint(QPainter::TextAntialiasing);
 
-        QFont font(draw_settings.font_family, draw_settings.base_font_size);
-        font.setBold(true);
-        painter.setFont(font);
+        // Split text into Reference and Verse Text
+        QString qFull = QString::fromStdString(text_to_draw);
+        int firstNL = qFull.indexOf('\n');
+        QString refStr = (firstNL != -1) ? qFull.left(firstNL) : "";
+        QString bodyStr = (firstNL != -1) ? qFull.mid(firstNL + 1) : qFull;
 
-        QRect rect;
-        if (draw_settings.full_screen) {
-            rect = QRect(100, 100, (int)width - 200, (int)height - 200);
-        } else {
-            int margin    = 100;
-            int bar_h     = (int)(height * 0.3f);
-            rect = QRect(margin, (int)height - bar_h - margin,
-                         (int)width - margin * 2, bar_h);
+        // Extract verse number if present at the start of bodyStr (e.g., "1 In the beginning")
+        QString verseNum = "";
+        if (!bodyStr.isEmpty() && bodyStr[0].isDigit()) {
+            int spaceIdx = bodyStr.indexOf(' ');
+            if (spaceIdx != -1) {
+                verseNum = bodyStr.left(spaceIdx);
+                bodyStr = bodyStr.mid(spaceIdx + 1);
+            }
         }
 
-        // FIX #14b: Bake alpha into paint colours so the GPU upload is
-        // self-contained. OBS_EFFECT_DEFAULT has no "color" uniform.
         int a8 = (int)(alpha * 255.0f);
 
-        painter.setPen(QColor(0, 0, 0, (int)(a8 * 0.7f)));
-        painter.drawText(rect.translated(2, 2),
-                         draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap,
-                         QString::fromStdString(text_to_draw));
+        auto drawWithOutline = [&](const QRect& r, const QString& text, const QFont& f, bool isRef, int customOffset = 0) {
+            painter.setFont(f);
+            
+            // Draw thick outline (8 directions)
+            painter.setPen(QColor(0, 0, 0, (int)(a8 * 0.9f)));
+            int outlineOffset = isRef ? 2 : 4; // Thicker outline for body
+            for (int x = -outlineOffset; x <= outlineOffset; x++) {
+                for (int y = -outlineOffset; y <= outlineOffset; y++) {
+                    if (x == 0 && y == 0) continue;
+                    painter.drawText(r.translated(x, y + customOffset),
+                                     draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap,
+                                     text);
+                }
+            }
 
-        painter.setPen(QColor(255, 255, 255, a8));
-        painter.drawText(rect,
-                         draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap,
-                         QString::fromStdString(text_to_draw));
+            // Draw main white text
+            painter.setPen(QColor(255, 255, 255, a8));
+            painter.drawText(r.translated(0, customOffset),
+                             draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap,
+                             text);
+        };
+
+        // Layout: Main body takes upper 80%, Reference takes lower 20%
+        int margin = 80;
+        int bar_h = (int)(height * 0.45f); // Larger bar area
+        QRect fullRect = QRect(margin, (int)height - bar_h - margin, (int)width - margin * 2, bar_h);
+        
+        QRect bodyRect = fullRect;
+        bodyRect.setHeight((int)(fullRect.height() * 0.85f));
+        
+        QRect refRect = fullRect;
+        refRect.setTop(bodyRect.bottom() - 20);
+
+        // Font for main body - SIGNIFICANTLY LARGER (1.5x base)
+        int calculatedBodySize = (int)(draw_settings.base_font_size * 1.5f);
+        QFont bodyFont(draw_settings.font_family, calculatedBodySize);
+        bodyFont.setBold(true);
+        bodyFont.setWeight(QFont::Black);
+
+        // Draw body with superscript if needed
+        if (!bodyStr.isEmpty()) {
+            if (!verseNum.isEmpty()) {
+                // Draw superscript manually
+                QFont superFont(draw_settings.font_family, (int)(calculatedBodySize * 0.5f));
+                superFont.setBold(true);
+                
+                // Calculate width of superscript to offset main text
+                QFontMetrics fm(superFont);
+                int superW = fm.horizontalAdvance(verseNum) + 10;
+                
+                // Draw superscript slightly higher
+                drawWithOutline(bodyRect.translated(-superW/2, -calculatedBodySize/3), verseNum, superFont, false);
+                
+                // Draw body shifted right to make room for superscript
+                drawWithOutline(bodyRect.translated(superW/2, 0), bodyStr, bodyFont, false);
+            } else {
+                drawWithOutline(bodyRect, bodyStr, bodyFont, false);
+            }
+        }
+        
+        if (!refStr.isEmpty()) {
+            QFont refFont(draw_settings.font_family, (int)(draw_settings.base_font_size * 0.7f));
+            refFont.setBold(true);
+            refFont.setItalic(true);
+            
+            // Align reference to the right
+            painter.setFont(refFont);
+            drawWithOutline(refRect, refStr, refFont, true);
+        }
 
         painter.end();
     }

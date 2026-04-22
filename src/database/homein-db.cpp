@@ -187,6 +187,51 @@ bool HomeInDB::GetVerse(const std::string& book_name, int chapter, int verse,
     return found;
 }
 
+std::vector<BibleVerse> HomeInDB::GetChapterVerses(const std::string& book_name, int chapter, const std::string& translation_abbr) {
+    std::vector<BibleVerse> results;
+    if (!db) return results;
+
+    const char* query =
+        "SELECT v.text, b.name, t.abbreviation, v.translation_id, v.book_id, CAST(v.verse AS INTEGER) as verse_num "
+        "FROM verses v "
+        "JOIN books b ON v.book_id = b.id "
+        "JOIN translations t ON v.translation_id = t.id "
+        "WHERE (b.name LIKE ? OR b.abbreviation LIKE ?) "
+        "AND CAST(v.chapter AS INTEGER) = ? "
+        "AND t.abbreviation = ? "
+        "ORDER BY verse_num ASC";
+
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, query, -1, &stmt, nullptr) != SQLITE_OK) {
+        return results;
+    }
+
+    std::string book_pattern = "%" + book_name + "%";
+    sqlite3_bind_text(stmt, 1, book_pattern.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, book_pattern.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, chapter);
+    sqlite3_bind_text(stmt, 4, translation_abbr.c_str(), -1, SQLITE_TRANSIENT);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        BibleVerse v;
+        const char* text  = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const char* bname = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        const char* tabbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+
+        v.text             = text  ? text  : "";
+        v.book_name        = bname ? bname : "";
+        v.translation_abbr = tabbr ? tabbr : "";
+        v.translation_id   = sqlite3_column_int(stmt, 3);
+        v.book_id          = sqlite3_column_int(stmt, 4);
+        v.chapter          = chapter;
+        v.verse            = sqlite3_column_int(stmt, 5);
+        results.push_back(v);
+    }
+
+    sqlite3_finalize(stmt);
+    return results;
+}
+
 int HomeInDB::GetChapterCount(const std::string& book_name) {
     if (!db) return 0;
 

@@ -37,6 +37,7 @@ public:
     Q_INVOKABLE void AppendTranscript(const std::string& text);
     Q_INVOKABLE void ShowBibleSuggestion(const std::string& book, int chapter,
                                           int verse, const std::string& text);
+    Q_INVOKABLE void ShowBibleVerseAtIndex(int index);
     Q_INVOKABLE void ShowLyricsResults(const std::vector<SongLyric>& results);
 
     enum class FocusMode { Auto, Bible, Songs };
@@ -91,9 +92,13 @@ private:
     QLineEdit  *bible_search_input;
     QLabel     *suggestion_label;
     QPushButton *push_btn;
+    QPushButton *bible_prev_btn;
+    QPushButton *bible_next_btn;
     QWidget    *bible_grid_container;
     QGridLayout *bible_grid_layout;
     std::string current_search_book;
+    std::vector<BibleVerse> current_chapter_verses;
+    int current_bible_verse_index = -1;
 
     QLineEdit   *lyrics_search_input;
     QTextEdit   *lyrics_result_view;

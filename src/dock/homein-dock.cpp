@@ -172,13 +172,63 @@ void HomeInDock::SetupUI() {
 
     bible_suggestion_view = new QTextEdit(this);
     bible_suggestion_view->setReadOnly(true);
+    bible_suggestion_view->setMaximumHeight(120); // Prevent stretching
     b_layout->addWidget(bible_suggestion_view);
 
+    QHBoxLayout *action_layout = new QHBoxLayout();
+
+    bible_prev_btn = new QPushButton("▲", this);
+    bible_prev_btn->setToolTip("Preceding Verse");
+    bible_prev_btn->setFixedWidth(35);
+    bible_prev_btn->setFixedHeight(35);
+
+    bible_next_btn = new QPushButton("▼", this);
+    bible_next_btn->setToolTip("Succeeding Verse");
+    bible_next_btn->setFixedWidth(35);
+    bible_next_btn->setFixedHeight(35);
+
+    QPushButton *clear_btn = new QPushButton("Clear", this);
+    clear_btn->setStyleSheet("background-color: #5f6368; color: white; font-weight: bold; border-radius: 4px;");
+    clear_btn->setFixedHeight(35);
+    
     push_btn = new QPushButton("Push live", this);
     push_btn->setObjectName("pushBtn");
     push_btn->setFixedHeight(35);
-    b_layout->addWidget(push_btn);
+
+    action_layout->addWidget(bible_prev_btn);
+    action_layout->addWidget(bible_next_btn);
+    action_layout->addWidget(clear_btn);
+    action_layout->addWidget(push_btn);
+    b_layout->addLayout(action_layout);
+    
+    // Add stretch at the very bottom so everything packs tightly to the top
+    b_layout->addStretch();
+    
     tabs_widget->addTab(bible_tab, "Bible");
+    
+    // Connect clear button immediately
+    connect(clear_btn, &QPushButton::clicked, [this]() {
+        suggestion_label->setText("No verse detected...");
+        bible_suggestion_view->clear();
+        current_chapter_verses.clear();
+        current_bible_verse_index = -1;
+        HomeInRenderer* r = GetActiveRenderer();
+        if (r) {
+            r->SetText("");
+        }
+    });
+
+    connect(bible_prev_btn, &QPushButton::clicked, [this]() {
+        if (current_bible_verse_index > 0) {
+            ShowBibleVerseAtIndex(current_bible_verse_index - 1);
+        }
+    });
+
+    connect(bible_next_btn, &QPushButton::clicked, [this]() {
+        if (current_bible_verse_index >= 0 && current_bible_verse_index < (int)current_chapter_verses.size() - 1) {
+            ShowBibleVerseAtIndex(current_bible_verse_index + 1);
+        }
+    });
 
     // Lyrics tab
     QWidget *lyrics_tab = new QWidget();
@@ -250,10 +300,11 @@ void HomeInDock::SetupUI() {
     });
     connect(push_btn, &QPushButton::clicked, [this]() {
         HomeInRenderer* r = GetActiveRenderer();
-        if (r) {
-            std::string txt = suggestion_label->text().toStdString() + "\n"
-                            + bible_suggestion_view->toPlainText().toStdString();
-            r->SetText(txt);
+        if (r && current_bible_verse_index >= 0 && current_bible_verse_index < (int)current_chapter_verses.size()) {
+            const BibleVerse& v = current_chapter_verses[current_bible_verse_index];
+            std::string ref = suggestion_label->text().toStdString();
+            std::string body = std::to_string(v.verse) + " " + v.text;
+            r->SetText(ref + "\n" + body);
         }
     });
     connect(prev_verse_btn, &QPushButton::clicked, [this]() {
@@ -659,10 +710,10 @@ void HomeInDock::OnChapterSelected() {
     if (!btn) return;
     int chapter = btn->text().toInt();
 
-    // FIX #1/#5: Use CurrentTranslation() which reads currentData(), not currentText().
-    BibleVerse verse;
-    if (bible_db.GetVerse(current_search_book, chapter, 1, CurrentTranslation(), verse)) {
-        ShowBibleSuggestion(verse.book_name, verse.chapter, verse.verse, verse.text);
+    current_chapter_verses = bible_db.GetChapterVerses(current_search_book, chapter, CurrentTranslation());
+    
+    if (!current_chapter_verses.empty()) {
+        ShowBibleVerseAtIndex(0);
         bible_grid_container->setVisible(false);
         bible_suggestion_view->setVisible(true);
     }
@@ -725,54 +776,87 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
     });
 }
 
+void HomeInDock::ShowBibleVerseAtIndex(int index) {
+    if (index < 0 || index >= (int)current_chapter_verses.size()) return;
+
+    current_bible_verse_index = index;
+    const BibleVerse& verse = current_chapter_verses[index];
+
+    QString content = QString::fromStdString(verse.text);
+    bible_suggestion_view->setText(content);
+
+    QString ref = QString::fromStdString(verse.book_name) + " " +
+                  QString::number(verse.chapter) + ":" +
+                  QString::number(verse.verse);
+    if (!verse.translation_abbr.empty()) {
+        ref += " (" + QString::fromStdString(verse.translation_abbr) + ")";
+    }
+    suggestion_label->setText(ref);
+}
+
 void HomeInDock::CheckForReferences(const std::string& text) {
     if (current_focus == FocusMode::Songs) return;
     if (!auto_search) return;
 
     auto refs = ref_parser.Parse(text);
-    // FIX #1: Use CurrentTranslation() — reads abbreviation from item data.
     std::string version = CurrentTranslation();
 
-    for (size_t i = 0; i < refs.size(); ++i) {
-        const auto& ref = refs[i];
-        BibleVerse verse;
-        if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start, version, verse)) {
-            if (i == 0) {
-                ShowBibleSuggestion(verse.book_name, verse.chapter,
-                                    verse.verse, verse.text);
-                if (auto_push) {
-                    HomeInRenderer* r = GetActiveRenderer();
-                    if (r) {
-                        r->SetText(
-                            QString("%1 %2:%3\n%4")
-                                .arg(QString::fromStdString(verse.book_name))
-                                .arg(verse.chapter).arg(verse.verse)
-                                .arg(QString::fromStdString(verse.text))
-                                .toStdString());
-                    }
+    if (!refs.empty()) {
+        const auto& ref = refs[0]; // Process the first reference for chapter loading
+
+        current_chapter_verses = bible_db.GetChapterVerses(ref.book, ref.chapter, version);
+
+        if (!current_chapter_verses.empty()) {
+            current_bible_verse_index = 0;
+            for (size_t j = 0; j < current_chapter_verses.size(); ++j) {
+                if (current_chapter_verses[j].verse == ref.verse_start) {
+                    current_bible_verse_index = (int)j;
+                    break;
                 }
-                if (auto_switch_tabs)
-                    QMetaObject::invokeMethod(tabs_widget, "setCurrentIndex",
-                                              Qt::QueuedConnection, Q_ARG(int, 1));
-            } else {
-                QString qText = QString("%1 %2:%3: %4")
-                    .arg(QString::fromStdString(verse.book_name))
-                    .arg(verse.chapter).arg(verse.verse)
-                    .arg(QString::fromStdString(verse.text));
-                QMetaObject::invokeMethod(this, [this, qText]() {
-                    queue_list->addItem(qText);
-                }, Qt::QueuedConnection);
             }
+
+            ShowBibleVerseAtIndex(current_bible_verse_index);
+
+            if (auto_push) {
+                HomeInRenderer* r = GetActiveRenderer();
+                if (r) {
+                    const BibleVerse& v = current_chapter_verses[current_bible_verse_index];
+                    QString ref = QString("%1 %2:%3")
+                            .arg(QString::fromStdString(v.book_name))
+                            .arg(v.chapter).arg(v.verse);
+                    if (!v.translation_abbr.empty()) {
+                        ref += " (" + QString::fromStdString(v.translation_abbr) + ")";
+                    }
+                    r->SetText(ref.toStdString() + "\n" + std::to_string(v.verse) + " " + v.text);
+                }
+            }
+
+            if (auto_switch_tabs)
+                QMetaObject::invokeMethod(tabs_widget, "setCurrentIndex",
+                                          Qt::QueuedConnection, Q_ARG(int, 1));
         }
+    } else if (text.length() > 20) {
+        PerformFuzzySearch(text);
     }
-    if (refs.empty() && text.length() > 20) PerformFuzzySearch(text);
 }
 
 void HomeInDock::PerformFuzzySearch(const std::string& text) {
     auto results = bible_db.SearchVerses(text, 1);
     if (!results.empty()) {
         const auto& v = results[0];
-        ShowBibleSuggestion(v.book_name, v.chapter, v.verse, v.text);
+        std::string version = CurrentTranslation();
+        current_chapter_verses = bible_db.GetChapterVerses(v.book_name, v.chapter, version);
+        
+        if (!current_chapter_verses.empty()) {
+            current_bible_verse_index = 0;
+            for (size_t j = 0; j < current_chapter_verses.size(); ++j) {
+                if (current_chapter_verses[j].verse == v.verse) {
+                    current_bible_verse_index = (int)j;
+                    break;
+                }
+            }
+            ShowBibleVerseAtIndex(current_bible_verse_index);
+        }
     }
 }
 

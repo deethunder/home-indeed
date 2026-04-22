@@ -47,6 +47,11 @@ public:
     bool GetVerse(const std::string& book_name, int chapter, int verse, const std::string& translation_abbr, BibleVerse& out_verse);
 
     /**
+     * @brief Retrieves an entire chapter of verses from a translation.
+     */
+    std::vector<BibleVerse> GetChapterVerses(const std::string& book_name, int chapter, const std::string& translation_abbr);
+
+    /**
      * @brief Returns the number of chapters in a book.
      */
     int GetChapterCount(const std::string& book_name);
