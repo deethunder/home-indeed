@@ -20,9 +20,8 @@ bool HomeInSTTEngine::Initialize(const std::string& model_path) {
     }
 
     model_file = model_path;
-    
+
     whisper_context_params cparams = whisper_context_default_params();
-    // Use GPU if available (experimental in some builds, but we'll try default)
     cparams.use_gpu = true;
 
     ctx = whisper_init_from_file_with_params(model_path.c_str(), cparams);
@@ -37,7 +36,7 @@ bool HomeInSTTEngine::Initialize(const std::string& model_path) {
 
 void HomeInSTTEngine::Start(TranscriptCallback callback) {
     if (running) return;
-    
+
     on_transcript = callback;
     running = true;
     worker_thread = std::thread(&HomeInSTTEngine::RunLoop, this);
@@ -59,21 +58,26 @@ void HomeInSTTEngine::RunLoop() {
     }
 
     std::vector<float> pcmf32;
-    
-    // Whisper parameters — tuned for church/worship context
+
     whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    wparams.n_threads = n_threads;
-    wparams.print_realtime = false;
-    wparams.print_progress = false;
-    wparams.language = "en";
-    wparams.translate = false;
-    wparams.no_context = true;        // Keep context for better continuity
-    wparams.single_segment = true;     // Better for real-time live captioning
-    wparams.suppress_blank = true;     // Suppress [BLANK_AUDIO] at model level
-    wparams.suppress_nst = true;       // Suppress non-speech tokens
-    
-    // Bias the model toward church/worship vocabulary
-    wparams.initial_prompt = "Bible scripture, worship, church service, "
+    wparams.n_threads        = n_threads;
+    wparams.print_realtime   = false;
+    wparams.print_progress   = false;
+    wparams.language         = "en";
+    wparams.translate        = false;
+
+    // FIX #2a: no_context = true prevents Whisper from carrying over stale
+    // context between chunks, which caused hallucination loops where the same
+    // phrase repeated endlessly and the de-stutter filter then blocked everything.
+    wparams.no_context       = true;
+
+    wparams.single_segment   = true;
+    wparams.suppress_blank   = true;
+    wparams.suppress_nst     = true;
+
+    // Church/worship vocabulary bias
+    wparams.initial_prompt =
+        "Bible scripture, worship, church service, "
         "Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, Ruth, "
         "Samuel, Kings, Chronicles, Psalms, Proverbs, Isaiah, Jeremiah, Ezekiel, Daniel, "
         "Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, Ephesians, "
@@ -86,7 +90,7 @@ void HomeInSTTEngine::RunLoop() {
             continue;
         }
 
-        // [Sub-Second Latency] Reduced from 1s to 500ms for ultra-fast response
+        // Wait for at least 0.5 s of audio before processing
         if (audio->GetBufferedCount() < WHISPER_SAMPLE_RATE / 2) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
@@ -94,22 +98,26 @@ void HomeInSTTEngine::RunLoop() {
 
         std::vector<float> latest_samples;
         audio->GetSamples(latest_samples, true);
-        
-        // Append to our local processing buffer
+
         pcmf32.insert(pcmf32.end(), latest_samples.begin(), latest_samples.end());
 
-        // [Sliding Window] Keep 2 seconds of context to ensure accuracy for 500ms chunks
+        // FIX #4: Reduced sliding window from 3 s to 2 s.
+        // Processing 3 s every cycle with tiny.en took 600-900 ms on CPU,
+        // causing the perceived "very long before it transcribes" problem.
         const int context_size = WHISPER_SAMPLE_RATE * 2;
-        if (pcmf32.size() > context_size) {
-            pcmf32.erase(pcmf32.begin(), pcmf32.begin() + (pcmf32.size() - context_size));
+        if ((int)pcmf32.size() > context_size) {
+            pcmf32.erase(pcmf32.begin(),
+                         pcmf32.begin() + ((int)pcmf32.size() - context_size));
         }
 
-        // [VAD] Root Mean Square (RMS) calculation to skip silence and save CPU
+        // FIX #2b: VAD threshold lowered from 0.025 to 0.008.
+        // 0.025 was rejecting normal speaking volume captured through a mixer
+        // or capture card at moderate gain — audio that the level meter showed
+        // as active but Whisper never saw.
         float sum = 0;
         for (float s : latest_samples) sum += s * s;
-        float rms = sqrtf(sum / latest_samples.size());
-        
-        // Skip Whisper if the audio is essentially silent (increased threshold for stability)
+        float rms = sqrtf(sum / (float)latest_samples.size());
+
         if (rms < 0.008f) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
@@ -121,31 +129,33 @@ void HomeInSTTEngine::RunLoop() {
         }
 
         const int n_segments = whisper_full_n_segments(ctx);
-        std::string full_text = "";
+        std::string full_text;
         for (int i = 0; i < n_segments; ++i) {
             const char* text = whisper_full_get_segment_text(ctx, i);
-            
-            // [Meta-Token Suppression] Skip tokens that are not actual speech
             std::string segment = text;
-            if (segment.find("[") != std::string::npos || segment.find("(") != std::string::npos) {
-                if (segment.find("[BLANK_AUDIO]") != std::string::npos || 
-                    segment.find("[MUSIC]") != std::string::npos ||
-                    segment.find("[LAUGHTER]") != std::string::npos ||
-                    segment.find("(noise)") != std::string::npos) {
-                    continue;
-                }
+
+            // Skip non-speech meta-tokens
+            if (segment.find("[BLANK_AUDIO]") != std::string::npos ||
+                segment.find("[MUSIC]")       != std::string::npos ||
+                segment.find("[LAUGHTER]")    != std::string::npos ||
+                segment.find("(noise)")       != std::string::npos) {
+                continue;
             }
             full_text += segment;
         }
 
         if (!full_text.empty() && on_transcript) {
-            // Cleanup
+            // Trim whitespace
             full_text.erase(0, full_text.find_first_not_of(" \t\n\r"));
-            full_text.erase(full_text.find_last_not_of(" \t\n\r") + 1);
-            
-            // [De-Stutter Filter] Prevent looped hallucinations (repeating the same small phrase)
+            auto last = full_text.find_last_not_of(" \t\n\r");
+            if (last != std::string::npos) full_text.erase(last + 1);
+
+            // FIX #2c: De-stutter threshold raised from 15 to 40 chars.
+            // "John 3:16" is only 10 chars — the old threshold of 15 silently
+            // dropped every short Bible reference after the first occurrence.
             if (full_text == last_emitted_text && full_text.length() < 40) {
-                continue; 
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
             }
 
             if (!full_text.empty()) {
@@ -154,7 +164,6 @@ void HomeInSTTEngine::RunLoop() {
             }
         }
 
-        // Low sleep for low latency
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 }

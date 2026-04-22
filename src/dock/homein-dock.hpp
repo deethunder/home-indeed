@@ -27,10 +27,6 @@
 #include "../detection/homein-lyrics-engine.hpp"
 #include "../updater/homein-updater.hpp"
 
-/**
- * @brief The primary control dock for Home Indeed.
- * Featuring native OBS-style integration and interactive chapter selection.
- */
 class HomeInDock : public QWidget {
     Q_OBJECT
 
@@ -39,7 +35,8 @@ public:
     ~HomeInDock();
 
     Q_INVOKABLE void AppendTranscript(const std::string& text);
-    Q_INVOKABLE void ShowBibleSuggestion(const std::string& book, int chapter, int verse, const std::string& text);
+    Q_INVOKABLE void ShowBibleSuggestion(const std::string& book, int chapter,
+                                          int verse, const std::string& text);
     Q_INVOKABLE void ShowLyricsResults(const std::vector<SongLyric>& results);
 
     enum class FocusMode { Auto, Bible, Songs };
@@ -73,58 +70,57 @@ private:
     void ClearBibleGrid();
     void PopulateChapterGrid(const std::string& book_name, int count);
 
+    // FIX #1: Helper that always returns the clean abbreviation (e.g. "KJV")
+    // from item data rather than the display text.
+    std::string CurrentTranslation() const;
+
     FocusMode current_focus = FocusMode::Auto;
-    bool mic_active = false;
-    bool mic_paused = false;
+    bool mic_active  = false;
+    bool mic_paused  = false;
 
-    // UI members
-    QPushButton *mic_btn;
-    QPushButton *pause_btn;
-    QComboBox *focus_combo;
+    QPushButton    *mic_btn;
+    QPushButton    *pause_btn;
+    QComboBox      *focus_combo;
     QStackedWidget *view_stack;
-    QWidget *tabs_page;
-    QWidget *settings_page;
-    QTabWidget *tabs_widget;
+    QWidget        *tabs_page;
+    QWidget        *settings_page;
+    QTabWidget     *tabs_widget;
 
-    // Bible components
-    QTextEdit *transcript_view;
-    QTextEdit *bible_suggestion_view;
-    QLineEdit *bible_search_input;
-    QLabel *suggestion_label;
+    QTextEdit  *transcript_view;
+    QTextEdit  *bible_suggestion_view;
+    QLineEdit  *bible_search_input;
+    QLabel     *suggestion_label;
     QPushButton *push_btn;
-    QWidget *bible_grid_container;
+    QWidget    *bible_grid_container;
     QGridLayout *bible_grid_layout;
     std::string current_search_book;
 
-    // Lyrics & Queue
-    QLineEdit *lyrics_search_input;
-    QTextEdit *lyrics_result_view;
-    QCheckBox *allow_web_checkbox;
+    QLineEdit   *lyrics_search_input;
+    QTextEdit   *lyrics_result_view;
+    QCheckBox   *allow_web_checkbox;
     QPushButton *prev_verse_btn;
     QPushButton *next_verse_btn;
     QListWidget *queue_list;
-    
-    // Settings / UI Layout
-    QComboBox *align_combo;
-    QCheckBox *fullscreen_checkbox;
-    QComboBox *bible_version_combo;
-    QCheckBox *auto_switch_tabs_checkbox;
-    QCheckBox *auto_search_checkbox;
-    QCheckBox *auto_push_checkbox;
-    bool auto_switch_tabs = true;
-    bool auto_search = true;
-    bool auto_push = true;
 
-    // Audio/System Monitoring
+    QComboBox  *align_combo;
+    QCheckBox  *fullscreen_checkbox;
+    QComboBox  *bible_version_combo;
+    QCheckBox  *auto_switch_tabs_checkbox;
+    QCheckBox  *auto_search_checkbox;
+    QCheckBox  *auto_push_checkbox;
+    bool auto_switch_tabs = true;
+    bool auto_search      = true;
+    bool auto_push        = true;
+
     QProgressBar *audio_level_bar;
-    QLineEdit *last_word_field;
-    QTimer *level_timer;
+    QLineEdit    *last_word_field;
+    QTimer       *level_timer;
     std::vector<std::string> current_song_lines;
     int current_verse_index = -1;
 
-    HomeInSTTEngine stt_engine;
-    HomeInRefParser ref_parser;
-    HomeInDB bible_db;
-    HomeInLyricsEngine lyrics_engine;
-    HomeInUpdateChecker updater;
+    HomeInSTTEngine      stt_engine;
+    HomeInRefParser      ref_parser;
+    HomeInDB             bible_db;
+    HomeInLyricsEngine   lyrics_engine;
+    HomeInUpdateChecker  updater;
 };

@@ -22,34 +22,26 @@ public:
 
     bool Open(const std::string& db_path);
     void Close();
+
+    // FIX #8: Added IsOpen() so callers can guard against an uninitialised DB.
     bool IsOpen() const { return db != nullptr; }
 
-    /**
-     * @brief Adds a song to the local cache.
-     */
-    bool AddSong(const std::string& title, const std::string& artist, const std::string& content, const std::string& source);
+    bool AddSong(const std::string& title, const std::string& artist,
+                 const std::string& content, const std::string& source);
 
-    /**
-     * @brief Searches for a song in the local cache.
-     */
     std::vector<SongLyric> Search(const std::string& query, int limit = 10);
 
-    /**
-     * @brief Finds a song by title and artist.
-     */
-    bool FindSong(const std::string& title, const std::string& artist, SongLyric& out_song);
+    bool FindSong(const std::string& title, const std::string& artist,
+                  SongLyric& out_song);
 
-    /**
-     * @brief Rebuilds the FTS5 index after batch imports.
-     */
     void RebuildFTS();
-
-    /**
-     * @brief Performs a startup check and logs the status of the lyrics database.
-     */
     void ValidateDatabase();
 
 private:
+    // FIX #7: Creates the lyrics + lyrics_fts tables if they don't exist.
+    // Previously the DB file existed but was completely empty — every
+    // AddSong(), Search(), and RebuildFTS() call silently failed.
     void EnsureSchema();
+
     sqlite3* db = nullptr;
 };
