@@ -61,6 +61,13 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 )
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper)
 
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE 
+  SQLITE_ENABLE_FTS5=1
+  SQLITE_ENABLE_FTS4=1
+  SQLITE_ENABLE_FTS3=1
+  SQLITE_ENABLE_FTS3_PARENTHESIS=1
+)
+
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 
