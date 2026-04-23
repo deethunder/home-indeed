@@ -60,10 +60,20 @@ void HomeInRenderer::Register() {
     info.video_render = homein_renderer_video_render;
     info.get_width    = homein_renderer_get_width;
     info.get_height   = homein_renderer_get_height;
+    info.get_defaults = [](obs_data_t* settings) {
+        obs_data_set_default_string(settings, "font_color", "white");
+        obs_data_set_default_int(settings, "alignment", (int)Qt::AlignCenter);
+        obs_data_set_default_int(settings, "font_size", 48);
+    };
     obs_register_source(&info);
 }
 
-HomeInRenderer::HomeInRenderer() {}
+HomeInRenderer::HomeInRenderer() {
+    settings.font_color = "white";
+    settings.base_font_size = 48;
+    settings.font_family = "Arial";
+    settings.alignment = Qt::AlignCenter;
+}
 
 HomeInRenderer::~HomeInRenderer() {
     obs_enter_graphics();
@@ -129,44 +139,38 @@ void HomeInRenderer::PrepareTexture() {
 
         int a8 = (int)(alpha * 255.0f);
 
-        auto drawWithOutline = [&](const QRect& r, const QString& text, const QFont& f, bool isRef, int customOffset = 0) {
+        auto drawWithOutline = [&](const QRect& r, const QString& text, const QFont& f, bool isRef) {
             painter.setFont(f);
             
-            // Draw thick outline (8 directions)
-            painter.setPen(QColor(0, 0, 0, (int)(a8 * 0.9f)));
-            int outlineOffset = isRef ? 2 : 4; // Thicker outline for body
-            for (int x = -outlineOffset; x <= outlineOffset; x++) {
-                for (int y = -outlineOffset; y <= outlineOffset; y++) {
-                    if (x == 0 && y == 0) continue;
-                    painter.drawText(r.translated(x, y + customOffset),
-                                     draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap,
-                                     text);
-                }
-            }
-
-            // Draw main white text
-            painter.setPen(QColor(255, 255, 255, a8));
-            painter.drawText(r.translated(0, customOffset),
-                             draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap,
-                             text);
+            int flags = draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap;
+            
+            QString colorStr = draw_settings.font_color.toLower().trimmed();
+            if (colorStr != "black") colorStr = "white"; // Force white if not black
+            
+            QColor textColor = (colorStr == "black") ? Qt::black : Qt::white;
+            
+            // 3. Draw main text only (No glow, no outline, per user request)
+            painter.setPen(QColor(textColor.red(), textColor.green(), textColor.blue(), a8));
+            painter.drawText(r, flags, text);
         };
 
-        // Layout: Main body takes upper 80%, Reference takes lower 20%
+        // Layout: Centered bottom area
         int margin = 80;
-        int bar_h = (int)(height * 0.45f); // Larger bar area
-        QRect fullRect = QRect(margin, (int)height - bar_h - margin, (int)width - margin * 2, bar_h);
+        int area_h = (int)(height * 0.35f);
+        QRect contentRect(margin, (int)height - area_h - 40, (int)width - margin * 2, area_h);
         
-        QRect bodyRect = fullRect;
-        bodyRect.setHeight((int)(fullRect.height() * 0.85f));
+        QRect bodyRect = contentRect;
+        bodyRect.setHeight((int)(contentRect.height() * 0.85f));
         
-        QRect refRect = fullRect;
+        QRect refRect = contentRect;
         refRect.setTop(bodyRect.bottom() - 20);
 
-        // Font for main body - SIGNIFICANTLY LARGER (1.5x base)
-        int calculatedBodySize = (int)(draw_settings.base_font_size * 1.5f);
+        // Font for main body
+        int calculatedBodySize = (int)(draw_settings.base_font_size * 1.2f);
         QFont bodyFont(draw_settings.font_family, calculatedBodySize);
         bodyFont.setBold(true);
-        bodyFont.setWeight(QFont::Black);
+        bodyFont.setWeight(QFont::Bold);
+        bodyFont.setStyleStrategy(QFont::PreferAntialias);
 
         // Draw body with superscript if needed
         if (!bodyStr.isEmpty()) {
@@ -177,7 +181,7 @@ void HomeInRenderer::PrepareTexture() {
                 
                 // Calculate width of superscript to offset main text
                 QFontMetrics fm(superFont);
-                int superW = fm.horizontalAdvance(verseNum) + 10;
+                int superW = fm.horizontalAdvance(verseNum) + 60; // Increased from 25 to 60
                 
                 // Draw superscript slightly higher
                 drawWithOutline(bodyRect.translated(-superW/2, -calculatedBodySize/3), verseNum, superFont, false);

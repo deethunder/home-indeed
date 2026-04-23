@@ -13,6 +13,7 @@ struct OverlaySettings {
     bool          full_screen  = false;
     QString       font_family  = "Arial";
     int           base_font_size = 48;
+    QString       font_color   = "white";
 };
 
 class HomeInRenderer {

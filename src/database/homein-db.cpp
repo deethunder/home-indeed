@@ -309,3 +309,19 @@ std::vector<std::string> HomeInDB::GetTranslations() {
     }
     return results;
 }
+
+std::vector<std::string> HomeInDB::GetAllBooks() {
+    std::vector<std::string> results;
+    if (!db) return results;
+
+    const char* sql = "SELECT name FROM books ORDER BY id ASC;";
+    sqlite3_stmt* stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            if (name) results.push_back(name);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return results;
+}

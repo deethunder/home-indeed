@@ -250,25 +250,83 @@ void HomeInDock::SetupUI() {
     import_btn->setStyleSheet("font-weight: bold; color: #5294e2;");
     l_options_layout->addWidget(import_btn);
     l_layout->addLayout(l_options_layout);
+    
+    lyrics_results_list = new QListWidget(this);
+    lyrics_results_list->setStyleSheet("max-height: 100px;");
+    lyrics_results_list->setVisible(false);
+    l_layout->addWidget(lyrics_results_list);
 
-    lyrics_result_view = new QTextEdit(this);
-    lyrics_result_view->setReadOnly(true);
-    l_layout->addWidget(lyrics_result_view);
+    QLabel *v_label = new QLabel("Select Song Section (2/4 lines):", this);
+    v_label->setStyleSheet("font-size: 11px; color: #8ab4f8; margin-top: 5px;");
+    l_layout->addWidget(v_label);
+
+    lyrics_verses_list = new QListWidget(this);
+    lyrics_verses_list->setStyleSheet("background-color: #1a1a1a;");
+    l_layout->addWidget(lyrics_verses_list);
 
     QHBoxLayout *stepper_layout = new QHBoxLayout();
-    prev_verse_btn = new QPushButton("PREV", this);
-    next_verse_btn = new QPushButton("NEXT", this);
+    prev_verse_btn = new QPushButton("▲", this);
+    prev_verse_btn->setToolTip("Previous Verse");
+    prev_verse_btn->setFixedWidth(35);
+    prev_verse_btn->setFixedHeight(35);
+
+    next_verse_btn = new QPushButton("▼", this);
+    next_verse_btn->setToolTip("Next Verse");
+    next_verse_btn->setFixedWidth(35);
+    next_verse_btn->setFixedHeight(35);
+
+    lyrics_clear_btn = new QPushButton("Clear", this);
+    lyrics_clear_btn->setStyleSheet("background-color: #5f6368; color: white; font-weight: bold; border-radius: 4px;");
+    lyrics_clear_btn->setFixedHeight(35);
+
+    lyrics_push_btn = new QPushButton("Push live", this);
+    lyrics_push_btn->setObjectName("pushBtn");
+    lyrics_push_btn->setFixedHeight(35);
+
     stepper_layout->addWidget(prev_verse_btn);
     stepper_layout->addWidget(next_verse_btn);
+    stepper_layout->addWidget(lyrics_clear_btn);
+    stepper_layout->addWidget(lyrics_push_btn);
     l_layout->addLayout(stepper_layout);
+    
+    l_layout->addStretch();
     tabs_widget->addTab(lyrics_tab, "Lyrics");
 
     // Queue tab
     QWidget *queue_tab = new QWidget();
     QVBoxLayout *q_layout = new QVBoxLayout(queue_tab);
+    
+    QLabel *q_label = new QLabel("Service Queue (Double-click to push live):", this);
+    q_label->setStyleSheet("font-size: 11px; color: #8ab4f8;");
+    q_layout->addWidget(q_label);
+
     queue_list = new QListWidget(this);
     queue_list->setStyleSheet("background-color: #1a1a1a; color: #ffffff;");
     q_layout->addWidget(queue_list);
+
+    QHBoxLayout *q_action_layout = new QHBoxLayout();
+    up_queue_btn = new QPushButton("▲", this);
+    up_queue_btn->setFixedWidth(35);
+    up_queue_btn->setFixedHeight(35);
+    
+    down_queue_btn = new QPushButton("▼", this);
+    down_queue_btn->setFixedWidth(35);
+    down_queue_btn->setFixedHeight(35);
+
+    clear_queue_btn = new QPushButton("Clear", this);
+    clear_queue_btn->setStyleSheet("background-color: #5f6368; color: white; font-weight: bold; border-radius: 4px;");
+    clear_queue_btn->setFixedHeight(35);
+
+    push_queue_btn = new QPushButton("Push live", this);
+    push_queue_btn->setObjectName("pushBtn");
+    push_queue_btn->setFixedHeight(35);
+
+    q_action_layout->addWidget(up_queue_btn);
+    q_action_layout->addWidget(down_queue_btn);
+    q_action_layout->addWidget(clear_queue_btn);
+    q_action_layout->addWidget(push_queue_btn);
+    q_layout->addLayout(q_action_layout);
+    
     tabs_widget->addTab(queue_tab, "Queue");
 
     view_stack->addWidget(tabs_page);
@@ -283,7 +341,13 @@ void HomeInDock::SetupUI() {
 
     // --- Connections ---
     connect(search_btn, &QPushButton::clicked, [this]() {
-        std::string text = bible_search_input->text().toStdString();
+        QString qText = bible_search_input->text().trimmed();
+        if (qText.isEmpty()) {
+            PopulateBookGrid();
+            return;
+        }
+
+        std::string text = qText.toStdString();
         int chapters = bible_db.GetChapterCount(text);
         if (chapters > 0) {
             current_search_book = text;
@@ -308,24 +372,62 @@ void HomeInDock::SetupUI() {
         }
     });
     connect(prev_verse_btn, &QPushButton::clicked, [this]() {
-        if (current_verse_index > 0) {
-            current_verse_index--;
-            lyrics_result_view->setText(
-                QString::fromStdString(current_song_lines[current_verse_index]));
+        int row = lyrics_results_list->currentRow();
+        if (row > 0) {
+            lyrics_results_list->setCurrentRow(row - 1);
+            OnSongSelected(lyrics_results_list->currentItem());
         }
     });
     connect(next_verse_btn, &QPushButton::clicked, [this]() {
-        if (current_verse_index < (int)current_song_lines.size() - 1) {
-            current_verse_index++;
-            lyrics_result_view->setText(
-                QString::fromStdString(current_song_lines[current_verse_index]));
+        int row = lyrics_results_list->currentRow();
+        if (row < lyrics_results_list->count() - 1) {
+            lyrics_results_list->setCurrentRow(row + 1);
+            OnSongSelected(lyrics_results_list->currentItem());
         }
     });
+    
+    connect(lyrics_verses_list, &QListWidget::itemClicked, [this](QListWidgetItem* item) {
+        HomeInRenderer* r = GetActiveRenderer();
+        if (r && item) {
+            r->SetText(item->text().toStdString());
+        }
+    });
+    
+    connect(lyrics_clear_btn, &QPushButton::clicked, [this]() {
+        lyrics_verses_list->clear();
+        current_song_lines.clear();
+        current_verse_index = -1;
+        suggestion_label->setText("No song detected...");
+        HomeInRenderer* r = GetActiveRenderer();
+        if (r) r->SetText("");
+    });
+    
+    connect(lyrics_push_btn, &QPushButton::clicked, [this]() {
+        HomeInRenderer* r = GetActiveRenderer();
+        if (r && current_verse_index >= 0 && current_verse_index < (int)current_song_lines.size()) {
+            std::string text = current_song_lines[current_verse_index];
+            // Maybe add song title/info at bottom? 
+            // The Bible tab adds ref. Lyrics usually just show the text.
+            r->SetText(text);
+        }
+    });
+    connect(push_queue_btn, &QPushButton::clicked, this, &HomeInDock::UpdateOverlayFromSelection);
+    connect(clear_queue_btn, &QPushButton::clicked, [this]() {
+        queue_list->clear();
+    });
+    connect(up_queue_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueUp);
+    connect(down_queue_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueDown);
+
     connect(queue_list, &QListWidget::itemDoubleClicked,
             this, &HomeInDock::UpdateOverlayFromSelection);
+    connect(lyrics_results_list, &QListWidget::itemClicked,
+            this, &HomeInDock::OnSongSelected);
     connect(import_btn, &QPushButton::clicked, this, &HomeInDock::OnImportEasyWorship);
 
     setLayout(main_layout);
+
+    // FIX: Apply initial settings to the renderer immediately
+    ApplySettings();
 }
 
 void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
@@ -415,6 +517,22 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     align_combo->addItem("Right",  (int)Qt::AlignRight);
     a_layout->addWidget(align_combo);
     d_layout->addLayout(a_layout);
+    
+    QHBoxLayout *l_pp_layout = new QHBoxLayout();
+    l_pp_layout->addWidget(new QLabel("Lyrics Lines per Page:", parent));
+    lines_per_page_combo = new QComboBox(parent);
+    lines_per_page_combo->addItem("2 Lines", 2);
+    lines_per_page_combo->addItem("4 Lines", 4);
+    l_pp_layout->addWidget(lines_per_page_combo);
+    d_layout->addLayout(l_pp_layout);
+
+    QHBoxLayout *f_color_layout = new QHBoxLayout();
+    f_color_layout->addWidget(new QLabel("Font Color:", parent));
+    font_color_combo = new QComboBox(parent);
+    font_color_combo->addItem("White", "white");
+    font_color_combo->addItem("Black", "black");
+    f_color_layout->addWidget(font_color_combo);
+    d_layout->addLayout(f_color_layout);
 
     fullscreen_checkbox = new QCheckBox("Full Screen Mode", parent);
     d_layout->addWidget(fullscreen_checkbox);
@@ -469,22 +587,28 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     connect(back_btn, &QPushButton::clicked, this, &HomeInDock::ToggleSettings);
     layout->addWidget(back_btn);
 
-    auto update_s = [this]() {
-        OverlaySettings s;
-        s.alignment      = (Qt::Alignment)align_combo->currentData().toInt();
-        s.full_screen    = fullscreen_checkbox->isChecked();
-        s.base_font_size = s.full_screen ? 64 : 48;
-        HomeInRenderer* r = GetActiveRenderer();
-        if (r) r->UpdateSettings(s);
-    };
-    connect(align_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), update_s);
-    connect(fullscreen_checkbox, &QCheckBox::toggled, update_s);
+    connect(align_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](){ ApplySettings(); });
+    connect(font_color_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](){ ApplySettings(); });
+    connect(fullscreen_checkbox, &QCheckBox::toggled, [this](){ ApplySettings(); });
     connect(auto_switch_tabs_checkbox, &QCheckBox::toggled,
             [this](bool c){ auto_switch_tabs = c; });
     connect(auto_search_checkbox, &QCheckBox::toggled,
             [this](bool c){ auto_search = c; });
     connect(auto_push_checkbox, &QCheckBox::toggled,
             [this](bool c){ auto_push = c; });
+            
+    connect(lines_per_page_combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            [this](int index) {
+        lines_per_page = lines_per_page_combo->itemData(index).toInt();
+        // Re-split current song if one is loaded
+        if (!current_song.content.empty()) {
+            QListWidgetItem dummy;
+            QVariant data;
+            data.setValue(current_song);
+            dummy.setData(Qt::UserRole, data);
+            OnSongSelected(&dummy);
+        }
+    });
 }
 
 // FIX #1: Stores abbreviation as BOTH item text AND item data.
@@ -510,8 +634,10 @@ void HomeInDock::AddToQueue() {
     QString text;
     if (tabs_widget->currentIndex() == 1)
         text = suggestion_label->text() + ": " + bible_suggestion_view->toPlainText();
-    else if (tabs_widget->currentIndex() == 2)
-        text = lyrics_result_view->toPlainText();
+    else if (tabs_widget->currentIndex() == 2) {
+        if (lyrics_verses_list->currentItem())
+            text = lyrics_verses_list->currentItem()->text();
+    }
     else
         text = transcript_view->toPlainText().split('\n').last();
 
@@ -562,8 +688,16 @@ void HomeInDock::UpdateAudioTest() {
     // FIX #14: PrepareTexture() must run on the Qt main thread (QPainter is
     // not thread-safe). The level_timer fires at 10 fps on the Qt main thread,
     // making it the correct place to drive texture pre-rendering.
+    // FIX: Ensure settings are pushed as soon as the renderer source is active
+    static bool settings_synced = false;
     HomeInRenderer* r = GetActiveRenderer();
-    if (r) r->PrepareTexture();
+    if (r) {
+        if (!settings_synced) {
+            ApplySettings();
+            settings_synced = true;
+        }
+        r->PrepareTexture();
+    }
 }
 
 void HomeInDock::OnToggleMic() {
@@ -652,9 +786,14 @@ void HomeInDock::OnImportEasyWorship() {
     int count = 0;
 
     if (reply == QMessageBox::Yes) {
+        QString default_path = "C:/Users/Public/Documents/Softouch/EasyWorship/Default/v7.1/Databases/Data";
+        if (!QDir(default_path).exists()) {
+            default_path = "C:/Users/Public/Documents/Softouch/EasyWorship/Default/v6.1/Databases/Data";
+        }
+
         QString dbPath = QFileDialog::getOpenFileName(this,
             "Select EasyWorship Songs.db",
-            "C:/Users/Public/Documents/Softouch/EasyWorship/Default/v6.1/Databases/Data",
+            default_path,
             "EasyWorship Database (Songs.db)");
         if (!dbPath.isEmpty())
             count = importer.ImportFromEW7(dbPath);
@@ -703,6 +842,50 @@ void HomeInDock::PopulateChapterGrid(const std::string& book_name, int count) {
         connect(btn, &QPushButton::clicked, this, &HomeInDock::OnChapterSelected);
         bible_grid_layout->addWidget(btn, i / cols, i % cols);
     }
+}
+
+void HomeInDock::PopulateBookGrid() {
+    ClearBibleGrid();
+    bible_suggestion_view->setVisible(false);
+    bible_grid_container->setVisible(true);
+    suggestion_label->setText("Select a Bible Book:");
+
+    std::vector<std::string> books = bible_db.GetAllBooks();
+    int cols = 4;
+    for (size_t i = 0; i < books.size(); ++i) {
+        QPushButton *btn = new QPushButton(QString::fromStdString(books[i]), this);
+        btn->setFixedHeight(30);
+        btn->setObjectName("searchBtn");
+        btn->setStyleSheet(
+            "QPushButton { font-size: 11px; font-weight: bold; "
+            "background-color: #35363a; border: 1px solid #444; }"
+            "QPushButton:hover { background-color: #4285f4; border-color: #4285f4; }");
+        connect(btn, &QPushButton::clicked, this, &HomeInDock::OnBookSelected);
+        bible_grid_layout->addWidget(btn, (int)i / cols, (int)i % cols);
+    }
+}
+
+void HomeInDock::OnBookSelected() {
+    QPushButton *btn = qobject_cast<QPushButton*>(sender());
+    if (!btn) return;
+    std::string book = btn->text().toStdString();
+    int chapters = bible_db.GetChapterCount(book);
+    if (chapters > 0) {
+        current_search_book = book;
+        PopulateChapterGrid(book, chapters);
+    }
+}
+
+void HomeInDock::ApplySettings() {
+    OverlaySettings s;
+    s.alignment      = (Qt::Alignment)align_combo->currentData().toInt();
+    s.full_screen    = fullscreen_checkbox->isChecked();
+    s.font_color     = font_color_combo->currentData().toString();
+    if (s.font_color.isEmpty()) s.font_color = "white";
+    s.base_font_size = s.full_screen ? 64 : 48;
+    
+    HomeInRenderer* r = GetActiveRenderer();
+    if (r) r->UpdateSettings(s);
 }
 
 void HomeInDock::OnChapterSelected() {
@@ -869,27 +1052,84 @@ void HomeInDock::ShowBibleSuggestion(const std::string& book, int chapter,
 }
 
 void HomeInDock::SearchLyrics(const std::string& query) {
+    lyrics_results_list->clear();
+    lyrics_results_list->setVisible(false);
     lyrics_engine.Search(query, allow_web_checkbox->isChecked(),
         [this](const std::vector<SongLyric>& results) {
             QMetaObject::invokeMethod(this, "ShowLyricsResults",
-                                      Qt::QueuedConnection,
-                                      Q_ARG(std::vector<SongLyric>, results));
+                                       Qt::QueuedConnection,
+                                       Q_ARG(std::vector<SongLyric>, results));
         });
 }
 
 void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
-    if (results.empty()) { lyrics_result_view->setText("Not found."); return; }
-    const auto& s = results[0];
-    current_song_lines.clear();
-    std::string content = s.content;
-    size_t pos = 0;
-    while ((pos = content.find("\n\n")) != std::string::npos) {
-        current_song_lines.push_back(content.substr(0, pos));
-        content.erase(0, pos + 2);
+    lyrics_results_list->clear();
+    lyrics_verses_list->clear();
+    if (results.empty()) {
+        suggestion_label->setText("No songs found matching your search.");
+        lyrics_results_list->setVisible(false);
+        return;
     }
-    if (!content.empty()) current_song_lines.push_back(content);
+
+    if (results.size() > 1) {
+        for (const auto& s : results) {
+            QString label = QString::fromStdString(s.title);
+            if (!s.artist.empty()) label += " - " + QString::fromStdString(s.artist);
+            
+            QListWidgetItem* item = new QListWidgetItem(label, lyrics_results_list);
+            QVariant data;
+            data.setValue(s);
+            item->setData(Qt::UserRole, data);
+        }
+        lyrics_results_list->setVisible(true);
+        suggestion_label->setText(QString("Found %1 matches. Select one above.").arg(results.size()));
+    } else {
+        // Only one result, show it directly
+        lyrics_results_list->setVisible(false);
+        QListWidgetItem dummy;
+        QVariant data;
+        data.setValue(results[0]);
+        dummy.setData(Qt::UserRole, data);
+        OnSongSelected(&dummy);
+    }
+}
+
+void HomeInDock::OnSongSelected(QListWidgetItem* item) {
+    if (!item) return;
+    
+    current_song = item->data(Qt::UserRole).value<SongLyric>();
+    current_song_lines.clear();
+    lyrics_verses_list->clear();
+    
+    // Split lyrics into chunks of N lines for the verse list
+    QString qContent = QString::fromStdString(current_song.content).replace("\r\n", "\n");
+    QStringList all_lines = qContent.split("\n", Qt::SkipEmptyParts);
+    
+    QString current_chunk;
+    int line_count = 0;
+    for (int i = 0; i < all_lines.size(); ++i) {
+        if (!current_chunk.isEmpty()) current_chunk += "\n";
+        current_chunk += all_lines[i].trimmed();
+        line_count++;
+        
+        if (line_count >= lines_per_page) {
+            lyrics_verses_list->addItem(current_chunk);
+            current_chunk.clear();
+            line_count = 0;
+        }
+    }
+    
+    if (!current_chunk.isEmpty()) {
+        lyrics_verses_list->addItem(current_chunk);
+    }
+
     current_verse_index = 0;
-    if (!current_song_lines.empty())
-        lyrics_result_view->setText(
-            QString::fromStdString(current_song_lines[0]));
+    if (lyrics_verses_list->count() > 0) {
+        lyrics_verses_list->setCurrentRow(0);
+    }
+    
+    // Update suggestion label to show song info
+    QString info = QString::fromStdString(current_song.title);
+    if (!current_song.artist.empty()) info += " (" + QString::fromStdString(current_song.artist) + ")";
+    suggestion_label->setText(info);
 }

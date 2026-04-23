@@ -46,21 +46,6 @@
       }
     },
     {
-      "name": "windows-x64",
-      "displayName": "Windows x64",
-      "description": "Build for Windows x64",
-      "inherits": ["template"],
-      "binaryDir": "${sourceDir}/build_x64",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
-      },
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64,version=10.0.22621",
-      "warnings": {"dev": true, "deprecated": true}
-    },
-    {
       "name": "windows-local",
       "displayName": "Windows Local Dev (VS 2019)",
       "description": "Local development build for VS 2019 Build Tools",
@@ -80,15 +65,6 @@
         "CMAKE_COMPILE_WARNING_AS_ERROR": false,
         "CMAKE_CXX_FLAGS": "/EHsc /WX- /wd4996 /wd4305 /wd4244 /wd4267 /wd4100 /wd4530 /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
         "CMAKE_C_FLAGS": "/EHsc /WX- /wd4996 /wd4305 /wd4244 /wd4267 /wd4100 /wd4530 /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS"
-      }
-    },
-    {
-      "name": "windows-ci-x64",
-      "inherits": ["windows-x64"],
-      "displayName": "Windows x64 CI build",
-      "description": "Build for Windows x64 on CI",
-      "cacheVariables": {
-        "CMAKE_COMPILE_WARNING_AS_ERROR": true
       }
     },
     {
@@ -134,20 +110,6 @@
       "configurePreset": "macos-ci",
       "displayName": "macOS Universal CI",
       "description": "macOS CI build for Universal architectures",
-      "configuration": "RelWithDebInfo"
-    },
-    {
-      "name": "windows-x64",
-      "configurePreset": "windows-x64",
-      "displayName": "Windows x64",
-      "description": "Windows build for x64",
-      "configuration": "RelWithDebInfo"
-    },
-    {
-      "name": "windows-ci-x64",
-      "configurePreset": "windows-ci-x64",
-      "displayName": "Windows x64 CI",
-      "description": "Windows CI build for x64 (RelWithDebInfo configuration)",
       "configuration": "RelWithDebInfo"
     },
     {

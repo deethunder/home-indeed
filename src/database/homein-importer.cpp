@@ -95,21 +95,85 @@ int HomeInImporter::ImportFromEW7(const QString& db_path) {
         std::string lower = col;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         if (lower == "title" || lower == "name" || lower == "songtitle") title_col = col;
-        if (lower == "lyrics" || lower == "words" || lower == "content" || lower == "text") lyrics_col = col;
+        if (lower == "lyrics" || lower == "words" || lower == "content" || lower == "text" || lower == "body" || lower == "words_rtf") lyrics_col = col;
         if (lower == "author" || lower == "artist" || lower == "copyright" || lower == "writer") author_col = col;
+    }
+    
+    // Fallback if lyrics column not found by standard names
+    if (lyrics_col.empty()) {
+        for (const auto& col : columns) {
+            std::string lower = col;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            if (lower == "description" || lower == "revision") {
+                lyrics_col = col;
+                blog(LOG_INFO, "HomeIndeed: Using '%s' column as fallback for lyrics", col.c_str());
+                break;
+            }
+        }
     }
 
     if (title_col.empty() || lyrics_col.empty()) {
+        blog(LOG_INFO, "HomeIndeed: Lyrics not found in 'song' table, checking 'revision' table...");
+        std::string rev_table;
+        for (const auto& t : tables) {
+            std::string lower = t;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            if (lower == "revision" || lower == "revisions") {
+                rev_table = t;
+                break;
+            }
+        }
+
+        if (!rev_table.empty()) {
+            std::vector<std::string> rev_columns;
+            std::string rev_pragma = "PRAGMA table_info(\"" + rev_table + "\")";
+            if (sqlite3_prepare_v2(ew_db, rev_pragma.c_str(), -1, &col_stmt, nullptr) == SQLITE_OK) {
+                blog(LOG_INFO, "HomeIndeed: Table '%s' has columns:", rev_table.c_str());
+                while (sqlite3_step(col_stmt) == SQLITE_ROW) {
+                    const char* col_name = reinterpret_cast<const char*>(sqlite3_column_text(col_stmt, 1));
+                    rev_columns.push_back(col_name);
+                    blog(LOG_INFO, "  Column: %s", col_name);
+                }
+                sqlite3_finalize(col_stmt);
+            }
+
+            std::string rev_lyrics_col;
+            for (const auto& col : rev_columns) {
+                std::string lower = col;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                if (lower == "words" || lower == "body" || lower == "lyrics" || lower == "content" || lower == "words_rtf") {
+                    rev_lyrics_col = col;
+                    break;
+                }
+            }
+
+            if (!rev_lyrics_col.empty()) {
+                blog(LOG_INFO, "HomeIndeed: Found lyrics in '%s' table, column '%s'", rev_table.c_str(), rev_lyrics_col.c_str());
+                
+                // Join song and revision on song_uid, taking the latest revision
+                std::string query = "SELECT s.\"" + title_col + "\", r.\"" + rev_lyrics_col + "\"";
+                if (!author_col.empty()) query += ", s.\"" + author_col + "\"";
+                query += " FROM \"" + song_table + "\" s JOIN \"" + rev_table + "\" r ON s.song_uid = r.song_uid";
+                query += " WHERE r.rowid = (SELECT MAX(rowid) FROM \"" + rev_table + "\" WHERE song_uid = s.song_uid)";
+                
+                return ExecuteImportQuery(ew_db, query, !author_col.empty());
+            }
+        }
+
         blog(LOG_ERROR, "HomeIndeed: Could not find title or lyrics column in EW database");
         sqlite3_close(ew_db);
         return 0;
     }
 
-    // Step 5: Import songs
+    // Standard single-table import
     std::string query = "SELECT \"" + title_col + "\", \"" + lyrics_col + "\"";
     if (!author_col.empty()) query += ", \"" + author_col + "\"";
     query += " FROM \"" + song_table + "\"";
+    
+    return ExecuteImportQuery(ew_db, query, !author_col.empty());
+}
 
+int HomeInImporter::ExecuteImportQuery(sqlite3* ew_db, const std::string& query, bool has_author) {
     blog(LOG_INFO, "HomeIndeed: Running import query: %s", query.c_str());
 
     sqlite3_stmt* stmt;
@@ -118,7 +182,7 @@ int HomeInImporter::ImportFromEW7(const QString& db_path) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char* raw_title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
             const char* raw_lyrics = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-            const char* raw_author = !author_col.empty() ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
+            const char* raw_author = has_author ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
 
             if (!raw_title || !raw_lyrics) continue;
 
@@ -138,7 +202,6 @@ int HomeInImporter::ImportFromEW7(const QString& db_path) {
 
     sqlite3_close(ew_db);
 
-    // Step 6: Rebuild FTS index in our lyrics DB
     if (count > 0) {
         lyrics_db.RebuildFTS();
     }

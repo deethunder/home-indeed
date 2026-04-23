@@ -26,6 +26,7 @@ public:
     int ImportFromEW7(const QString& db_path);
 
 private:
+    int ExecuteImportQuery(struct sqlite3* ew_db, const std::string& query, bool has_author);
     std::string StripFormatting(const QString& text);
     /**
      * @brief Strips EasyWorship RTF formatting to return plain text.

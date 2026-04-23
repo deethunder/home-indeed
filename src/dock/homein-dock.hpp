@@ -39,6 +39,7 @@ public:
                                           int verse, const std::string& text);
     Q_INVOKABLE void ShowBibleVerseAtIndex(int index);
     Q_INVOKABLE void ShowLyricsResults(const std::vector<SongLyric>& results);
+    Q_INVOKABLE void OnSongSelected(QListWidgetItem* item);
 
     enum class FocusMode { Auto, Bible, Songs };
 
@@ -53,7 +54,6 @@ private slots:
     void OnToggleMic();
     void OnTogglePause();
     void OnImportEasyWorship();
-    void OnChapterSelected();
     void OnShowHelp();
     void SetFocusMode(FocusMode mode);
 
@@ -70,6 +70,10 @@ private:
     void PopulateTranslations();
     void ClearBibleGrid();
     void PopulateChapterGrid(const std::string& book_name, int count);
+    void PopulateBookGrid();
+    void OnChapterSelected();
+    void OnBookSelected();
+    void ApplySettings();
 
     // FIX #1: Helper that always returns the clean abbreviation (e.g. "KJV")
     // from item data rather than the display text.
@@ -101,15 +105,24 @@ private:
     int current_bible_verse_index = -1;
 
     QLineEdit   *lyrics_search_input;
-    QTextEdit   *lyrics_result_view;
     QCheckBox   *allow_web_checkbox;
     QPushButton *prev_verse_btn;
     QPushButton *next_verse_btn;
+    QPushButton *lyrics_push_btn;
+    QPushButton *lyrics_clear_btn;
+    QListWidget *lyrics_results_list;
+    QListWidget *lyrics_verses_list;
     QListWidget *queue_list;
+    QPushButton *push_queue_btn;
+    QPushButton *clear_queue_btn;
+    QPushButton *up_queue_btn;
+    QPushButton *down_queue_btn;
 
     QComboBox  *align_combo;
+    QComboBox  *font_color_combo;
     QCheckBox  *fullscreen_checkbox;
     QComboBox  *bible_version_combo;
+    QComboBox  *lines_per_page_combo;
     QCheckBox  *auto_switch_tabs_checkbox;
     QCheckBox  *auto_search_checkbox;
     QCheckBox  *auto_push_checkbox;
@@ -122,10 +135,12 @@ private:
     QTimer       *level_timer;
     std::vector<std::string> current_song_lines;
     int current_verse_index = -1;
+    int lines_per_page = 2;
 
     HomeInSTTEngine      stt_engine;
     HomeInRefParser      ref_parser;
     HomeInDB             bible_db;
     HomeInLyricsEngine   lyrics_engine;
     HomeInUpdateChecker  updater;
+    SongLyric current_song;
 };

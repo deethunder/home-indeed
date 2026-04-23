@@ -67,6 +67,11 @@ public:
     std::vector<std::string> GetTranslations();
 
     /**
+     * @brief Returns list of all Bible books in the DB.
+     */
+    std::vector<std::string> GetAllBooks();
+
+    /**
      * @brief Performs a startup check and logs the status of the database tables.
      */
     void ValidateDatabase();

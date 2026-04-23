@@ -2,8 +2,6 @@
 
 #include <QObject>
 #include <QString>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
 
 /**
  * @class HomeInUpdateChecker
@@ -33,10 +31,6 @@ signals:
      */
     void UpdateAvailable(const QString& new_version, const QString& release_notes, const QString& download_url);
 
-private slots:
-    void OnReplyFinished(QNetworkReply *reply);
-
 private:
-    QNetworkAccessManager *network_manager;
     QString current_version;
 };
