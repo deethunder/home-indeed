@@ -48,7 +48,7 @@ void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query,
             blog(LOG_INFO, "HomeIndeed: LRCLIB returned %lld bytes, %d matches found", 
                  (long long)response.size(), (int)arr.size());
 
-            for (int i = 0; i < std::min((int)arr.size(), 5); ++i) {
+            for (int i = 0; i < std::min((int)arr.size(), 15); ++i) {
                 QJsonObject obj = arr[i].toObject();
                 SongLyric s;
                 s.title   = obj["name"].toString().toStdString();

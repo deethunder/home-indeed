@@ -123,13 +123,22 @@ void HomeInRenderer::PrepareTexture() {
 
         // Split text into Reference and Verse Text
         QString qFull = QString::fromStdString(text_to_draw);
-        int firstNL = qFull.indexOf('\n');
-        QString refStr = (firstNL != -1) ? qFull.left(firstNL) : "";
-        QString bodyStr = (firstNL != -1) ? qFull.mid(firstNL + 1) : qFull;
+        bool isLyrics = qFull.startsWith('\x01');
+        if (isLyrics) qFull = qFull.mid(1); // Remove invisible marker
 
-        // Extract verse number if present at the start of bodyStr (e.g., "1 In the beginning")
+        int firstNL = qFull.indexOf('\n');
+        QString refStr = "";
+        QString bodyStr = qFull;
+
+        // If NOT lyrics, we use the Bible-style split (Ref on first line)
+        if (!isLyrics && firstNL != -1) {
+            refStr = qFull.left(firstNL);
+            bodyStr = qFull.mid(firstNL + 1);
+        }
+
+        // Extract verse number (Bible only)
         QString verseNum = "";
-        if (!bodyStr.isEmpty() && bodyStr[0].isDigit()) {
+        if (!isLyrics && !bodyStr.isEmpty() && bodyStr[0].isDigit()) {
             int spaceIdx = bodyStr.indexOf(' ');
             if (spaceIdx != -1) {
                 verseNum = bodyStr.left(spaceIdx);
@@ -139,68 +148,63 @@ void HomeInRenderer::PrepareTexture() {
 
         int a8 = (int)(alpha * 255.0f);
 
-        auto drawWithOutline = [&](const QRect& r, const QString& text, const QFont& f, bool isRef) {
+        auto drawWithOutline = [&](const QRect& r, const QString& text, const QFont& f, int extra_flags = 0) {
             painter.setFont(f);
             
-            int flags = draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap;
+            int flags = draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap | extra_flags;
             
             QString colorStr = draw_settings.font_color.toLower().trimmed();
-            if (colorStr != "black") colorStr = "white"; // Force white if not black
+            if (colorStr != "black") colorStr = "white"; 
             
             QColor textColor = (colorStr == "black") ? Qt::black : Qt::white;
             
-            // 3. Draw main text only (No glow, no outline, per user request)
             painter.setPen(QColor(textColor.red(), textColor.green(), textColor.blue(), a8));
             painter.drawText(r, flags, text);
         };
 
-        // Layout: Centered bottom area
+        // Layout
         int margin = 80;
-        int area_h = (int)(height * 0.35f);
+        int area_h = (int)(height * 0.40f); // Slightly larger area for lyrics
         QRect contentRect(margin, (int)height - area_h - 40, (int)width - margin * 2, area_h);
         
-        QRect bodyRect = contentRect;
-        bodyRect.setHeight((int)(contentRect.height() * 0.85f));
-        
-        QRect refRect = contentRect;
-        refRect.setTop(bodyRect.bottom() - 20);
-
-        // Font for main body
-        int calculatedBodySize = (int)(draw_settings.base_font_size * 1.2f);
-        QFont bodyFont(draw_settings.font_family, calculatedBodySize);
-        bodyFont.setBold(true);
-        bodyFont.setWeight(QFont::Bold);
-        bodyFont.setStyleStrategy(QFont::PreferAntialias);
-
-        // Draw body with superscript if needed
-        if (!bodyStr.isEmpty()) {
-            if (!verseNum.isEmpty()) {
-                // Draw superscript manually
-                QFont superFont(draw_settings.font_family, (int)(calculatedBodySize * 0.5f));
-                superFont.setBold(true);
-                
-                // Calculate width of superscript to offset main text
-                QFontMetrics fm(superFont);
-                int superW = fm.horizontalAdvance(verseNum) + 60; // Increased from 25 to 60
-                
-                // Draw superscript slightly higher
-                drawWithOutline(bodyRect.translated(-superW/2, -calculatedBodySize/3), verseNum, superFont, false);
-                
-                // Draw body shifted right to make room for superscript
-                drawWithOutline(bodyRect.translated(superW/2, 0), bodyStr, bodyFont, false);
-            } else {
-                drawWithOutline(bodyRect, bodyStr, bodyFont, false);
-            }
-        }
-        
-        if (!refStr.isEmpty()) {
-            QFont refFont(draw_settings.font_family, (int)(draw_settings.base_font_size * 0.7f));
-            refFont.setBold(true);
-            refFont.setItalic(true);
+        if (isLyrics) {
+            // Lyrics Mode: Draw everything as one big bold block
+            int calculatedSize = (int)(draw_settings.base_font_size * 1.3f);
+            QFont lyricFont(draw_settings.font_family, calculatedSize);
+            lyricFont.setBold(true);
+            lyricFont.setWeight(QFont::Bold);
+            drawWithOutline(contentRect, bodyStr, lyricFont);
+        } else {
+            // Bible Mode: Original reference/superscript layout
+            QRect bodyRect = contentRect;
+            bodyRect.setHeight((int)(contentRect.height() * 0.85f));
             
-            // Align reference to the right
-            painter.setFont(refFont);
-            drawWithOutline(refRect, refStr, refFont, true);
+            QRect refRect = contentRect;
+            refRect.setTop(bodyRect.bottom() - 20);
+
+            int calculatedBodySize = (int)(draw_settings.base_font_size * 1.2f);
+            QFont bodyFont(draw_settings.font_family, calculatedBodySize);
+            bodyFont.setBold(true);
+
+            if (!bodyStr.isEmpty()) {
+                if (!verseNum.isEmpty()) {
+                    QFont superFont(draw_settings.font_family, (int)(calculatedBodySize * 0.5f));
+                    superFont.setBold(true);
+                    QFontMetrics fm(superFont);
+                    int superW = fm.horizontalAdvance(verseNum) + 60;
+                    drawWithOutline(bodyRect.translated(-superW/2, -calculatedBodySize/3), verseNum, superFont);
+                    drawWithOutline(bodyRect.translated(superW/2, 0), bodyStr, bodyFont);
+                } else {
+                    drawWithOutline(bodyRect, bodyStr, bodyFont);
+                }
+            }
+            
+            if (!refStr.isEmpty()) {
+                QFont refFont(draw_settings.font_family, (int)(draw_settings.base_font_size * 0.7f));
+                refFont.setBold(true);
+                refFont.setItalic(true);
+                drawWithOutline(refRect, refStr, refFont);
+            }
         }
 
         painter.end();

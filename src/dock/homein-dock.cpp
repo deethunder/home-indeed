@@ -389,7 +389,7 @@ void HomeInDock::SetupUI() {
     connect(lyrics_verses_list, &QListWidget::itemClicked, [this](QListWidgetItem* item) {
         HomeInRenderer* r = GetActiveRenderer();
         if (r && item) {
-            r->SetText(item->text().toStdString());
+            r->SetText("\x01" + item->text().toStdString());
         }
     });
     
@@ -406,9 +406,7 @@ void HomeInDock::SetupUI() {
         HomeInRenderer* r = GetActiveRenderer();
         if (r && current_verse_index >= 0 && current_verse_index < (int)current_song_lines.size()) {
             std::string text = current_song_lines[current_verse_index];
-            // Maybe add song title/info at bottom? 
-            // The Bible tab adds ref. Lyrics usually just show the text.
-            r->SetText(text);
+            r->SetText("\x01" + text);
         }
     });
     connect(push_queue_btn, &QPushButton::clicked, this, &HomeInDock::UpdateOverlayFromSelection);
@@ -632,17 +630,21 @@ std::string HomeInDock::CurrentTranslation() const {
 
 void HomeInDock::AddToQueue() {
     QString text;
+    bool isLyrics = false;
     if (tabs_widget->currentIndex() == 1)
         text = suggestion_label->text() + ": " + bible_suggestion_view->toPlainText();
     else if (tabs_widget->currentIndex() == 2) {
-        if (lyrics_verses_list->currentItem())
+        if (lyrics_verses_list->currentItem()) {
             text = lyrics_verses_list->currentItem()->text();
+            isLyrics = true;
+        }
     }
     else
         text = transcript_view->toPlainText().split('\n').last();
 
     if (!text.isEmpty()) {
-        queue_list->addItem(text);
+        QListWidgetItem* item = new QListWidgetItem(text, queue_list);
+        item->setData(Qt::UserRole + 2, isLyrics);
         tabs_widget->setCurrentIndex(3);
     }
 }
@@ -672,7 +674,12 @@ void HomeInDock::MoveQueueDown() {
 void HomeInDock::UpdateOverlayFromSelection() {
     if (queue_list->currentItem()) {
         HomeInRenderer *r = GetActiveRenderer();
-        if (r) r->SetText(queue_list->currentItem()->text().toStdString());
+        if (r) {
+            QListWidgetItem* item = queue_list->currentItem();
+            std::string text = item->text().toStdString();
+            bool isLyrics = item->data(Qt::UserRole + 2).toBool();
+            r->SetText(isLyrics ? ("\x01" + text) : text);
+        }
     }
 }
 
@@ -948,7 +955,8 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                 for (int i = 0; i < lines.size(); i += 2) {
                     QString chunk = lines[i];
                     if (i + 1 < lines.size()) chunk += "\n" + lines[i + 1];
-                    queue_list->addItem(chunk);
+                    QListWidgetItem* item = new QListWidgetItem(chunk, queue_list);
+                    item->setData(Qt::UserRole + 2, true);
                 }
             }, Qt::QueuedConnection);
 
