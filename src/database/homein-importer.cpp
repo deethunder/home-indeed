@@ -32,211 +32,180 @@ int HomeInImporter::ImportFromEW7(const QString& db_path) {
         return 0;
     }
 
-    // Step 1: Discover all tables in the EW database
-    std::vector<std::string> tables;
-    sqlite3_stmt* tbl_stmt;
-    if (sqlite3_prepare_v2(ew_db, "SELECT name FROM sqlite_master WHERE type='table'", -1, &tbl_stmt, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(tbl_stmt) == SQLITE_ROW) {
-            tables.push_back(reinterpret_cast<const char*>(sqlite3_column_text(tbl_stmt, 0)));
-        }
-        sqlite3_finalize(tbl_stmt);
-    }
-    blog(LOG_INFO, "HomeIndeed: EW database has %d tables", (int)tables.size());
-    for (const auto& t : tables) {
-        blog(LOG_INFO, "  Table: %s", t.c_str());
-    }
-
-    // Step 2: Find the songs table (could be "song", "songs", "Song", etc.)
-    std::string song_table;
-    for (const auto& t : tables) {
-        std::string lower = t;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        if (lower == "song" || lower == "songs") {
-            song_table = t;
-            break;
-        }
-    }
-
-    if (song_table.empty()) {
-        blog(LOG_ERROR, "HomeIndeed: No 'song' or 'songs' table found in EW database");
-        // Try the first non-system table as a guess
-        for (const auto& t : tables) {
-            if (t.find("sqlite") == std::string::npos) {
-                song_table = t;
-                blog(LOG_INFO, "HomeIndeed: Trying table '%s' as fallback", t.c_str());
-                break;
-            }
-        }
-    }
-
-    if (song_table.empty()) {
-        sqlite3_close(ew_db);
-        return 0;
-    }
-
-    // Step 3: Get column names from the table
-    std::vector<std::string> columns;
-    std::string pragma = "PRAGMA table_info(" + song_table + ")";
-    sqlite3_stmt* col_stmt;
-    if (sqlite3_prepare_v2(ew_db, pragma.c_str(), -1, &col_stmt, nullptr) == SQLITE_OK) {
-        while (sqlite3_step(col_stmt) == SQLITE_ROW) {
-            columns.push_back(reinterpret_cast<const char*>(sqlite3_column_text(col_stmt, 1)));
-        }
-        sqlite3_finalize(col_stmt);
-    }
-    blog(LOG_INFO, "HomeIndeed: Table '%s' has %d columns", song_table.c_str(), (int)columns.size());
-    for (const auto& col : columns) {
-        blog(LOG_INFO, "  Column: %s", col.c_str());
-    }
-
-    // Step 4: Map columns (case-insensitive)
-    std::string title_col, lyrics_col, author_col;
-    bool high_quality_lyrics = false;
-    for (const auto& col : columns) {
-        std::string lower = col;
-        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-        if (lower == "title" || lower == "name" || lower == "songtitle") title_col = col;
-        if (lower == "lyrics" || lower == "words" || lower == "content" || lower == "text" || lower == "body" || lower == "words_rtf") {
-            lyrics_col = col;
-            high_quality_lyrics = true;
-        }
-        if (lower == "author" || lower == "artist" || lower == "copyright" || lower == "writer") author_col = col;
-    }
+    // --- THE NUCLEAR NEIGHBORHOOD SCAN ---
+    // Instead of guessing one file, we scan the entire folder for ANY .db file 
+    // that contains the "{\rtf" signature.
+    QFileInfo picked_file(db_path);
+    QDir db_dir = picked_file.absoluteDir();
+    QStringList db_files = db_dir.entryList({"*.db"}, QDir::Files);
     
-    // If no high quality lyrics column found in 'song', we WILL check 'revision' table later
-    if (!high_quality_lyrics) {
-        for (const auto& col : columns) {
-            std::string lower = col;
-            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-            if (lower == "description" || lower == "revision") {
-                lyrics_col = col;
-                blog(LOG_INFO, "HomeIndeed: Found '%s' column, but will prefer 'revision' table if available", col.c_str());
-                break;
-            }
-        }
-    }
+    blog(LOG_INFO, "HomeIndeed: Starting Neighborhood Scan in %s...", db_dir.absolutePath().toStdString().c_str());
 
-    // Step 5: Check 'revision' table first for EW7 if available, 
-    // unless we found a high-quality lyrics column in the main 'song' table.
-    if (!high_quality_lyrics || title_col.empty()) {
-        blog(LOG_INFO, "HomeIndeed: High-quality lyrics not in 'song' table, checking 'revision' table...");
-        std::string rev_table;
-        for (const auto& t : tables) {
-            std::string lower = t;
-            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-            if (lower == "revision" || lower == "revisions") {
-                rev_table = t;
-                break;
-            }
+    int total_imported = 0;
+    for (const QString& filename : db_files) {
+        QString full_path = db_dir.absoluteFilePath(filename);
+        blog(LOG_INFO, "HomeIndeed: Checking neighbor file: %s", filename.toStdString().c_str());
+
+        sqlite3* temp_db;
+        if (sqlite3_open_v2(full_path.toStdString().c_str(), &temp_db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+            continue;
         }
 
-        if (!rev_table.empty()) {
-            std::vector<std::string> rev_columns;
-            std::string rev_pragma = "PRAGMA table_info(\"" + rev_table + "\")";
-            if (sqlite3_prepare_v2(ew_db, rev_pragma.c_str(), -1, &col_stmt, nullptr) == SQLITE_OK) {
-                blog(LOG_INFO, "HomeIndeed: Table '%s' has columns:", rev_table.c_str());
-                while (sqlite3_step(col_stmt) == SQLITE_ROW) {
-                    const char* col_name = reinterpret_cast<const char*>(sqlite3_column_text(col_stmt, 1));
-                    rev_columns.push_back(col_name);
-                    blog(LOG_INFO, "  Column: %s", col_name);
-                }
-                sqlite3_finalize(col_stmt);
-            }
+        // Search every table in this database for RTF
+        char** tables; int rows, cols;
+        if (sqlite3_get_table(temp_db, "SELECT name FROM sqlite_master WHERE type='table'", &tables, &rows, &cols, nullptr) == SQLITE_OK) {
+            for (int i = 1; i <= rows; ++i) {
+                std::string table_name = tables[i];
+                if (table_name.find("sqlite") != std::string::npos) continue;
 
-            std::string rev_lyrics_col;
-            for (const auto& col : rev_columns) {
-                std::string lower = col;
-                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-                if (lower == "words" || lower == "body" || lower == "lyrics" || lower == "content" || lower == "words_rtf") {
-                    rev_lyrics_col = col;
-                    break;
-                }
-            }
+                // Scan first 100 rows of this table for RTF
+                std::string scan_query = "SELECT * FROM \"" + table_name + "\" LIMIT 100";
+                sqlite3_stmt* scan_stmt;
+                if (sqlite3_prepare_v2(temp_db, scan_query.c_str(), -1, &scan_stmt, nullptr) == SQLITE_OK) {
+                    int col_count = sqlite3_column_count(scan_stmt);
+                    std::string lyrics_col, title_col;
+                    
+                    while (sqlite3_step(scan_stmt) == SQLITE_ROW) {
+                        for (int c = 0; c < col_count; ++c) {
+                            const char* col_name = sqlite3_column_name(scan_stmt, c);
+                            const unsigned char* blob = (const unsigned char*)sqlite3_column_blob(scan_stmt, c);
+                            int bytes = sqlite3_column_bytes(scan_stmt, c);
+                            
+                            if (blob && bytes > 5) {
+                                for (int b = 0; b < bytes - 5; ++b) {
+                                    if (blob[b] == '{' && blob[b+1] == '\\' && blob[b+2] == 'r' && blob[b+3] == 't' && blob[b+4] == 'f') {
+                                        lyrics_col = col_name;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            std::string lower_col = col_name;
+                            std::transform(lower_col.begin(), lower_col.end(), lower_col.begin(), ::tolower);
+                            if (lower_col == "title" || lower_col == "name") title_col = col_name;
+                        }
+                        if (!lyrics_col.empty()) break;
+                    }
+                    sqlite3_finalize(scan_stmt);
 
-            if (!rev_lyrics_col.empty()) {
-                blog(LOG_INFO, "HomeIndeed: Found lyrics in '%s' table, column '%s'", rev_table.c_str(), rev_lyrics_col.c_str());
-                
-                // Join song and revision on song_uid, taking the latest revision
-                std::string query = "SELECT s.\"" + title_col + "\", r.\"" + rev_lyrics_col + "\"";
-                if (!author_col.empty()) query += ", s.\"" + author_col + "\"";
-                query += " FROM \"" + song_table + "\" s JOIN \"" + rev_table + "\" r ON s.song_uid = r.song_uid";
-                query += " WHERE r.rowid = (SELECT MAX(rowid) FROM \"" + rev_table + "\" WHERE song_uid = s.song_uid)";
-                
-                return ExecuteImportQuery(ew_db, query, !author_col.empty());
-            }
-        }
+                    if (!lyrics_col.empty()) {
+                        blog(LOG_INFO, "HomeIndeed: FOUND LYRICS in file '%s', table '%s', column '%s'!", 
+                             filename.toStdString().c_str(), table_name.c_str(), lyrics_col.c_str());
+                        
+                        std::string import_query;
+                        if (!title_col.empty()) {
+                            import_query = "SELECT \"" + title_col + "\", \"" + lyrics_col + "\" FROM \"" + table_name + "\"";
+                            total_imported += ExecuteImportQuery(temp_db, import_query, false);
+                        } else {
+                            // TRIAL AND ERROR JOINING
+                            blog(LOG_INFO, "HomeIndeed: Table has no titles. Starting Key Master discovery...");
+                            std::string attach_cmd = "ATTACH DATABASE '" + QDir::toNativeSeparators(db_path).toStdString() + "' AS main_db";
+                            sqlite3_exec(temp_db, attach_cmd.c_str(), nullptr, nullptr, nullptr);
 
-        // If we get here, we haven't returned yet, meaning we didn't find high quality lyrics in 'song'
-        // or a working 'revision' table. Let's dump some data to the log for debugging.
-        blog(LOG_INFO, "HomeIndeed: No obvious lyrics found. Dumping first 5 rows of 'song' table for inspection:");
-        sqlite3_stmt* diag_stmt;
-        if (sqlite3_prepare_v2(ew_db, "SELECT * FROM \"song\" LIMIT 5", -1, &diag_stmt, nullptr) == SQLITE_OK) {
-            int col_count = sqlite3_column_count(diag_stmt);
-            int row_idx = 0;
-            while (sqlite3_step(diag_stmt) == SQLITE_ROW) {
-                row_idx++;
-                for (int i = 0; i < col_count; ++i) {
-                    const char* col_name = sqlite3_column_name(diag_stmt, i);
-                    const char* val = (const char*)sqlite3_column_text(diag_stmt, i);
-                    if (val && strlen(val) > 0) {
-                        std::string snippet = std::string(val).substr(0, 100);
-                        blog(LOG_INFO, "  [ROW %d] Col '%s': \"%s...\"", row_idx, col_name, snippet.c_str());
+                            std::vector<std::string> source_keys = {"song_uid", "song_item_uid", "rowid", "song_id"};
+                            std::vector<std::string> target_keys = {"song_id", "parent_uid", "song_uid", "song_item_uid"};
+                            
+                            std::string best_source, best_target;
+                            for (const auto& s_key : source_keys) {
+                                for (const auto& t_key : target_keys) {
+                                    std::string check_query = "SELECT COUNT(*) FROM main_db.song m JOIN \"" + table_name + "\" t ON m.\"" + s_key + "\" = t.\"" + t_key + "\"";
+                                    sqlite3_stmt* check_stmt;
+                                    if (sqlite3_prepare_v2(temp_db, check_query.c_str(), -1, &check_stmt, nullptr) == SQLITE_OK) {
+                                        if (sqlite3_step(check_stmt) == SQLITE_ROW) {
+                                            int count = sqlite3_column_int(check_stmt, 0);
+                                            if (count > 0) {
+                                                blog(LOG_INFO, "HomeIndeed: KEY FOUND! Bridging '%s' -> '%s' (%d matches)", s_key.c_str(), t_key.c_str(), count);
+                                                best_source = s_key; best_target = t_key;
+                                                sqlite3_finalize(check_stmt);
+                                                goto key_found;
+                                            }
+                                        }
+                                        sqlite3_finalize(check_stmt);
+                                    }
+                                }
+                            }
+
+                            key_found:
+                            if (!best_source.empty()) {
+                                import_query = "SELECT m.title, t.\"" + lyrics_col + "\" FROM main_db.song m JOIN \"" + table_name + "\" t ON m.\"" + best_source + "\" = t.\"" + best_target + "\"";
+                                total_imported += ExecuteImportQuery(temp_db, import_query, false);
+                            } else {
+                                blog(LOG_WARNING, "HomeIndeed: Could not find a valid ID bridge for file '%s'", filename.toStdString().c_str());
+                            }
+                        }
                     }
                 }
             }
-            sqlite3_finalize(diag_stmt);
+            sqlite3_free_table(tables);
         }
-
-        blog(LOG_ERROR, "HomeIndeed: Could not find title or lyrics column in EW database");
-        sqlite3_close(ew_db);
-        return 0;
+        sqlite3_close(temp_db);
+        if (total_imported > 0) break;
     }
 
-    // Standard single-table import (if we found a high quality column in 'song')
-    blog(LOG_INFO, "HomeIndeed: Finalizing mapping - Title: '%s', Lyrics: '%s'", 
-         title_col.c_str(), lyrics_col.c_str());
-    
-    std::string query = "SELECT \"" + title_col + "\", \"" + lyrics_col + "\"";
-    if (!author_col.empty()) query += ", \"" + author_col + "\"";
-    query += " FROM \"" + song_table + "\"";
-    
-    return ExecuteImportQuery(ew_db, query, !author_col.empty());
+    sqlite3_close(ew_db);
+    if (total_imported > 0) {
+        blog(LOG_INFO, "HomeIndeed: Success! Imported %d songs via Neighborhood Scan.", total_imported);
+        return total_imported;
+    }
+
+    blog(LOG_ERROR, "HomeIndeed: Neighborhood Scan failed. No lyrics found in any .db file in that folder.");
+    return 0;
 }
 
 int HomeInImporter::ExecuteImportQuery(sqlite3* ew_db, const std::string& query, bool has_author) {
-    blog(LOG_INFO, "HomeIndeed: Running import query: %s", query.c_str());
+    blog(LOG_INFO, "HomeIndeed: Running full-table import (filtering in C++): %s", query.c_str());
 
     sqlite3_stmt* stmt;
     int count = 0;
+    int total_rows = 0;
     if (sqlite3_prepare_v2(ew_db, query.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
+            total_rows++;
             const char* raw_title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            const char* raw_lyrics = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-            const char* raw_author = has_author ? reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)) : "";
+            
+            // Read lyrics as BLOB to handle binary RTF
+            const unsigned char* blob = (const unsigned char*)sqlite3_column_blob(stmt, 1);
+            int bytes = sqlite3_column_bytes(stmt, 1);
+            
+            if (!raw_title || !blob || bytes < 5) continue;
 
-            if (!raw_title || !raw_lyrics) continue;
+            // Manual check for RTF signature in binary blob
+            bool is_rtf = false;
+            for (int i = 0; i < bytes - 5; ++i) {
+                if (blob[i] == '{' && blob[i+1] == '\\' && blob[i+2] == 'r' && blob[i+3] == 't' && blob[i+4] == 'f') {
+                    is_rtf = true;
+                    break;
+                }
+            }
+            if (!is_rtf) continue;
 
             QString title = QString::fromUtf8(raw_title);
-            QString lyrics = StripRTF(QString::fromUtf8(raw_lyrics));
-            QString author = raw_author ? QString::fromUtf8(raw_author) : "";
+            // Convert blob to string for the RTF parser
+            QString rtf_content = QString::fromUtf8((const char*)blob, bytes);
+            QString lyrics = StripRTF(rtf_content);
+            
+            if (lyrics.isEmpty()) continue;
 
-            if (!lyrics.isEmpty()) {
-                lyrics_db.AddSong(title.toStdString(), author.toStdString(), lyrics.toStdString(), "EasyWorship");
+            QString author = "";
+            if (has_author) {
+                const char* raw_author = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+                if (raw_author) author = QString::fromUtf8(raw_author);
+            }
+
+            if (lyrics_db.AddSong(title.toStdString(), author.toStdString(), lyrics.toStdString(), "EasyWorship")) {
                 count++;
             }
         }
         sqlite3_finalize(stmt);
     } else {
-        blog(LOG_ERROR, "HomeIndeed: EW import query failed: %s", sqlite3_errmsg(ew_db));
+        blog(LOG_ERROR, "HomeIndeed: SQL prepare failed: %s", sqlite3_errmsg(ew_db));
     }
-
-    sqlite3_close(ew_db);
 
     if (count > 0) {
         lyrics_db.RebuildFTS();
     }
 
-    blog(LOG_INFO, "HomeIndeed: Imported %d songs from EasyWorship", count);
+    blog(LOG_INFO, "HomeIndeed: Query complete. Found %d rows total, %d songs matched RTF signature and were imported.", total_rows, count);
     return count;
 }
 
