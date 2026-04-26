@@ -47,6 +47,15 @@ bool HomeInDB::Open(const std::string& db_path) {
     }
 
     ValidateDatabase();
+    
+    // PERFORMANCE OVERHAUL:
+    // 1. WAL Mode allows simultaneous read/write without UI locking.
+    // 2. Synchronous NORMAL is safe for WAL and much faster.
+    // 3. Cache size -4000 = ~4MB of RAM to keep current chapter in memory.
+    sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "PRAGMA cache_size=-4000;", nullptr, nullptr, nullptr);
+    
     RunMigration();
     return true;
 }
@@ -129,6 +138,12 @@ void HomeInDB::RunMigration() {
             sqlite3_finalize(check);
         }
     }
+
+    // Ensure high-performance composite index for multi-translation lookups
+    sqlite3_exec(db, 
+        "CREATE INDEX IF NOT EXISTS idx_verse_lookup "
+        "ON verses (translation_id, book_id, chapter, verse);", 
+        nullptr, nullptr, nullptr);
 }
 
 void HomeInDB::Close() {
@@ -294,20 +309,22 @@ std::vector<BibleVerse> HomeInDB::SearchVerses(const std::string& query, int lim
     return results;
 }
 
-std::vector<std::string> HomeInDB::GetTranslations() {
-    std::vector<std::string> results;
-    if (!db) return results;
+std::vector<BibleTranslation> HomeInDB::GetTranslations() {
+    std::vector<BibleTranslation> out;
+    if (!db) return out;
 
-    const char* sql = "SELECT abbreviation FROM translations ORDER BY id ASC;";
     sqlite3_stmt* stmt;
+    const char* sql = "SELECT abbreviation, name FROM translations ORDER BY abbreviation ASC;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            const char* abbr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            if (abbr) results.push_back(abbr);
+            BibleTranslation t;
+            t.abbreviation = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            t.name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            out.push_back(t);
         }
         sqlite3_finalize(stmt);
     }
-    return results;
+    return out;
 }
 
 std::vector<std::string> HomeInDB::GetAllBooks() {

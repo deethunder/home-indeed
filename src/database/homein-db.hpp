@@ -18,6 +18,14 @@ struct BibleVerse {
 };
 
 /**
+ * @brief Represents a Bible translation (e.g. KJV, NIV).
+ */
+struct BibleTranslation {
+    std::string abbreviation;
+    std::string name;
+};
+
+/**
  * @class HomeInDB
  * @brief Thread-safe interface for the Bible SQLite FTS5 database.
  * 
@@ -62,9 +70,9 @@ public:
     std::vector<BibleVerse> SearchVerses(const std::string& query, int limit = 5);
 
     /**
-     * @brief Returns list of available translations in the DB (e.g. "KJV", "NIV").
+     * @brief Returns a list of all available translations in the database.
      */
-    std::vector<std::string> GetTranslations();
+    std::vector<BibleTranslation> GetTranslations();
 
     /**
      * @brief Returns list of all Bible books in the DB.

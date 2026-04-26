@@ -157,7 +157,9 @@ std::vector<SongLyric> HomeInLyricsDB::Search(const std::string& query, int limi
 
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, fts_sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(stmt, 1, query.c_str(), -1, SQLITE_TRANSIENT);
+        // IMPROVED SEARCH: Use prefix matching (query*) to find words more easily.
+        std::string fts_query = query + "*";
+        sqlite3_bind_text(stmt, 1, fts_query.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 2, limit);
 
         while (sqlite3_step(stmt) == SQLITE_ROW) {

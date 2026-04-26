@@ -188,11 +188,12 @@ void HomeInRenderer::PrepareTexture() {
 
             if (!bodyStr.isEmpty()) {
                 if (!verseNum.isEmpty()) {
-                    QFont superFont(draw_settings.font_family, (int)(calculatedBodySize * 0.5f));
+                    QFont superFont(draw_settings.font_family, (int)(calculatedBodySize * 0.8f));
                     superFont.setBold(true);
                     QFontMetrics fm(superFont);
                     int superW = fm.horizontalAdvance(verseNum) + 60;
-                    drawWithOutline(bodyRect.translated(-superW/2, -calculatedBodySize/3), verseNum, superFont);
+                    // Move the verse number ABOVE the text line
+                    drawWithOutline(bodyRect.translated(-superW/2, -(int)(calculatedBodySize * 0.7f)), verseNum, superFont);
                     drawWithOutline(bodyRect.translated(superW/2, 0), bodyStr, bodyFont);
                 } else {
                     drawWithOutline(bodyRect, bodyStr, bodyFont);

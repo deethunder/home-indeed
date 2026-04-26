@@ -51,6 +51,7 @@ private slots:
     void MoveQueueDown();
     void UpdateOverlayFromSelection();
     void UpdateAudioTest();
+    void OnManualEntry();
     void OnToggleMic();
     void OnTogglePause();
     void OnImportEasyWorship();
@@ -104,6 +105,7 @@ private:
     std::string current_search_book;
     std::vector<BibleVerse> current_chapter_verses;
     int current_bible_verse_index = -1;
+    QListWidget *bible_verses_list;
 
     QLineEdit   *lyrics_search_input;
     QCheckBox   *allow_web_checkbox;
