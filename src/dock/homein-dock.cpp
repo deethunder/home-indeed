@@ -28,6 +28,33 @@
 #include "../renderer/homein-renderer.hpp"
 #include "../audio/homein-audio.hpp"
 #include "../database/homein-importer.hpp"
+#include <QSvgRenderer>
+#include <QFile>
+#include <QPainter>
+
+// Returns a QIcon from a bundled SVG, tinted to match Qt's text colour.
+static QIcon HomeInIcon(const QString& name, int size = 16) {
+    QString path = QString(":/assets/icons/%1.svg").arg(name);
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return QIcon();
+    }
+    QString svg = f.readAll();
+
+    // Tint stroke="currentColor" to Qt's window text colour so icons
+    // look correct on both dark and light OBS themes
+    QColor col = qApp->palette().color(QPalette::WindowText);
+    svg.replace("currentColor", col.name());
+
+    QSvgRenderer renderer(svg.toUtf8());
+    QPixmap pm(size, size);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    renderer.render(&p);
+    p.end();
+
+    return QIcon(pm);
+}
 
 HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -102,7 +129,7 @@ void HomeInDock::SetupUI() {
         "QPushButton#searchBtn { background-color: #35363a; border: 1px solid #3c4043; }"
         "QCheckBox { spacing: 8px; }"
         "QCheckBox::indicator { width: 18px; height: 18px; border: 1px solid #3c4043; border-radius: 3px; background: #202124; }"
-        "QCheckBox::indicator:checked { background: #8ab4f8; border-color: #8ab4f8; }"
+        "QCheckBox::indicator:checked { background: #2aee2a; border-color: #2aee2a; }"
         "QGroupBox { font-weight: bold; border: 1px solid #3c4043; border-radius: 6px; margin-top: 12px; padding-top: 12px; }"
         "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; color: #8ab4f8; padding: 0 3px; }"
         "QListWidget { background-color: #17181a; border: 1px solid #3c4043; border-radius: 4px; }"
@@ -141,7 +168,7 @@ void HomeInDock::SetupUI() {
     transcript_view = new QTextEdit(this);
     transcript_view->setReadOnly(true);
     t_layout->addWidget(transcript_view);
-    tabs_widget->addTab(transcript_tab, "Transcript");
+    tabs_widget->addTab(transcript_tab, HomeInIcon("mic", 18), "Transcript");
 
     // Bible tab
     QWidget *bible_tab = new QWidget();
@@ -150,12 +177,13 @@ void HomeInDock::SetupUI() {
     bible_search_input = new QLineEdit(this);
     bible_search_input->setPlaceholderText("Type book (e.g. Gen)...");
     search_layout->addWidget(bible_search_input);
-    QPushButton *search_btn = new QPushButton("Search", this);
+    QPushButton *search_btn = new QPushButton(HomeInIcon("search", 16), "", this);
     search_btn->setObjectName("searchBtn");
+    search_btn->setFixedSize(32, 32);
     search_layout->addWidget(search_btn);
-    QPushButton *help_btn = new QPushButton("?", this);
+    QPushButton *help_btn = new QPushButton(HomeInIcon("help-circle", 16), "", this);
     help_btn->setObjectName("searchBtn");
-    help_btn->setFixedWidth(30);
+    help_btn->setFixedSize(32, 32);
     help_btn->setToolTip("How to use Home Indeed");
     search_layout->addWidget(help_btn);
     b_layout->addLayout(search_layout);
@@ -177,15 +205,13 @@ void HomeInDock::SetupUI() {
 
     QHBoxLayout *action_layout = new QHBoxLayout();
 
-    bible_prev_btn = new QPushButton("▲", this);
+    bible_prev_btn = new QPushButton(HomeInIcon("chevron-up", 18), "", this);
     bible_prev_btn->setToolTip("Preceding Verse");
-    bible_prev_btn->setFixedWidth(35);
-    bible_prev_btn->setFixedHeight(35);
+    bible_prev_btn->setFixedSize(45, 35);
 
-    bible_next_btn = new QPushButton("▼", this);
+    bible_next_btn = new QPushButton(HomeInIcon("chevron-down", 18), "", this);
     bible_next_btn->setToolTip("Succeeding Verse");
-    bible_next_btn->setFixedWidth(35);
-    bible_next_btn->setFixedHeight(35);
+    bible_next_btn->setFixedSize(45, 35);
 
     QPushButton *clear_btn = new QPushButton("Clear", this);
     clear_btn->setStyleSheet("background-color: #5f6368; color: white; font-weight: bold; border-radius: 4px;");
@@ -204,7 +230,7 @@ void HomeInDock::SetupUI() {
     // Add stretch at the very bottom so everything packs tightly to the top
     b_layout->addStretch();
     
-    tabs_widget->addTab(bible_tab, "Bible");
+    tabs_widget->addTab(bible_tab, HomeInIcon("book-open", 18), "Bible");
     
     // Connect clear button immediately
     connect(clear_btn, &QPushButton::clicked, [this]() {
@@ -237,19 +263,30 @@ void HomeInDock::SetupUI() {
     lyrics_search_input = new QLineEdit(this);
     lyrics_search_input->setPlaceholderText("Search Song...");
     l_search_layout->addWidget(lyrics_search_input);
-    QPushButton *l_search_btn = new QPushButton("Find", this);
+    QPushButton *l_search_btn = new QPushButton(HomeInIcon("search", 16), "", this);
     l_search_btn->setObjectName("searchBtn");
+    l_search_btn->setFixedSize(32, 32);
     l_search_layout->addWidget(l_search_btn);
     l_layout->addLayout(l_search_layout);
     
     connect(lyrics_search_input, &QLineEdit::textChanged, this, &HomeInDock::OnLyricsSearchChanged);
 
     QHBoxLayout *l_options_layout = new QHBoxLayout();
-    allow_web_checkbox = new QCheckBox("Web Search (LRCLIB)", this);
+    allow_web_checkbox = new QCheckBox("Allow Web Search", this);
     allow_web_checkbox->setChecked(true);
     l_options_layout->addWidget(allow_web_checkbox);
-    QPushButton *import_btn = new QPushButton("📥 Import EasyWorship", this);
-    import_btn->setStyleSheet("font-weight: bold; color: #5294e2;");
+    
+    web_icon_label = new QLabel(this);
+    web_icon_label->setPixmap(HomeInIcon("globe", 14).pixmap(14, 14));
+    l_options_layout->addWidget(web_icon_label);
+
+    connect(allow_web_checkbox, &QCheckBox::toggled, [this](bool checked) {
+        web_icon_label->setPixmap(HomeInIcon(checked ? "globe" : "wifi-off", 14).pixmap(14, 14));
+    });
+
+    QPushButton *import_btn = new QPushButton(HomeInIcon("download", 16), "", this);
+    import_btn->setToolTip("Import EasyWorship Library");
+    import_btn->setFixedSize(32, 32);
     l_options_layout->addWidget(import_btn);
     l_layout->addLayout(l_options_layout);
     
@@ -267,15 +304,13 @@ void HomeInDock::SetupUI() {
     l_layout->addWidget(lyrics_verses_list);
 
     QHBoxLayout *stepper_layout = new QHBoxLayout();
-    prev_verse_btn = new QPushButton("▲", this);
+    prev_verse_btn = new QPushButton(HomeInIcon("chevron-up", 18), "", this);
     prev_verse_btn->setToolTip("Previous Verse");
-    prev_verse_btn->setFixedWidth(35);
-    prev_verse_btn->setFixedHeight(35);
+    prev_verse_btn->setFixedSize(45, 35);
 
-    next_verse_btn = new QPushButton("▼", this);
+    next_verse_btn = new QPushButton(HomeInIcon("chevron-down", 18), "", this);
     next_verse_btn->setToolTip("Next Verse");
-    next_verse_btn->setFixedWidth(35);
-    next_verse_btn->setFixedHeight(35);
+    next_verse_btn->setFixedSize(45, 35);
 
     lyrics_clear_btn = new QPushButton("Clear", this);
     lyrics_clear_btn->setStyleSheet("background-color: #5f6368; color: white; font-weight: bold; border-radius: 4px;");
@@ -292,7 +327,7 @@ void HomeInDock::SetupUI() {
     l_layout->addLayout(stepper_layout);
     
     l_layout->addStretch();
-    tabs_widget->addTab(lyrics_tab, "Lyrics");
+    tabs_widget->addTab(lyrics_tab, HomeInIcon("list-music", 18), "Lyrics");
 
     // Queue tab
     QWidget *queue_tab = new QWidget();
@@ -307,19 +342,17 @@ void HomeInDock::SetupUI() {
     q_layout->addWidget(queue_list);
 
     QHBoxLayout *q_action_layout = new QHBoxLayout();
-    up_queue_btn = new QPushButton("▲", this);
-    up_queue_btn->setFixedWidth(35);
-    up_queue_btn->setFixedHeight(35);
+    up_queue_btn = new QPushButton(HomeInIcon("chevron-up", 18), "", this);
+    up_queue_btn->setFixedSize(45, 35);
     
-    down_queue_btn = new QPushButton("▼", this);
-    down_queue_btn->setFixedWidth(35);
-    down_queue_btn->setFixedHeight(35);
+    down_queue_btn = new QPushButton(HomeInIcon("chevron-down", 18), "", this);
+    down_queue_btn->setFixedSize(45, 35);
 
     clear_queue_btn = new QPushButton("Clear", this);
     clear_queue_btn->setStyleSheet("background-color: #5f6368; color: white; font-weight: bold; border-radius: 4px;");
     clear_queue_btn->setFixedHeight(35);
 
-    push_queue_btn = new QPushButton("Push live", this);
+    push_queue_btn = new QPushButton(HomeInIcon("check", 14), "Push live", this);
     push_queue_btn->setObjectName("pushBtn");
     push_queue_btn->setFixedHeight(35);
 
@@ -329,7 +362,7 @@ void HomeInDock::SetupUI() {
     q_action_layout->addWidget(push_queue_btn);
     q_layout->addLayout(q_action_layout);
     
-    tabs_widget->addTab(queue_tab, "Queue");
+    tabs_widget->addTab(queue_tab, HomeInIcon("plus", 18), "Queue");
 
     view_stack->addWidget(tabs_page);
 
@@ -442,16 +475,18 @@ void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
     t_layout->setContentsMargins(5, 2, 5, 2);
     t_layout->setSpacing(8);
 
-    mic_btn = new QPushButton("🔴 LISTEN", this);
+    mic_btn = new QPushButton(HomeInIcon("mic", 20), "", this);
     mic_btn->setObjectName("micBtn");
-    mic_btn->setToolTip("Start Artificial Intelligence Listening");
+    mic_btn->setToolTip("Start AI Transcription");
+    mic_btn->setFixedSize(40, 32);
     mic_btn->setStyleSheet(
-        "QPushButton#micBtn { color: #ff6b6b; border: 1px solid #444; "
-        "border-radius: 4px; padding: 5px 12px; font-weight: bold; }");
+        "QPushButton#micBtn { color: #8ab4f8; border: 1px solid #444; "
+        "border-radius: 4px; padding: 0; font-weight: bold; }");
 
-    pause_btn = new QPushButton("⏸️", this);
+    pause_btn = new QPushButton(HomeInIcon("pause", 20), "", this);
     pause_btn->setObjectName("searchBtn");
     pause_btn->setToolTip("Pause Listening");
+    pause_btn->setFixedSize(32, 32);
     pause_btn->setEnabled(false);
 
     focus_combo = new QComboBox(this);
@@ -461,11 +496,15 @@ void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
     focus_combo->setStyleSheet(
         "background: #1a1a1a; color: #aaa; border: 1px solid #444;");
 
-    QPushButton *gear_btn = new QPushButton("⚙️", this);
-    gear_btn->setToolTip("Settings");
-    QPushButton *add_btn  = new QPushButton("+",   this);
-    add_btn->setToolTip("Queue selection");
-    QPushButton *del_btn  = new QPushButton("🗑️", this);
+    QPushButton *gear_btn = new QPushButton(HomeInIcon("settings", 18), "", this);
+    gear_btn->setToolTip("Configure Plugin");
+    gear_btn->setFixedSize(32, 32);
+    QPushButton *add_btn  = new QPushButton(HomeInIcon("plus", 18), "",   this);
+    add_btn->setToolTip("Add current selection to queue");
+    add_btn->setFixedSize(32, 32);
+    QPushButton *del_btn  = new QPushButton(HomeInIcon("trash-2", 18), "", this);
+    del_btn->setToolTip("Remove selected item from queue");
+    del_btn->setFixedSize(32, 32);
 
     t_layout->addWidget(mic_btn);
     t_layout->addWidget(pause_btn);
@@ -714,28 +753,32 @@ void HomeInDock::OnToggleMic() {
     if (!mic_active) {
         StartTranscription();
         mic_active = true;
-        mic_btn->setText("⬛ STOP");
+        mic_btn->setIcon(HomeInIcon("mic-off", 20));
+        mic_btn->setText("");
         mic_btn->setStyleSheet(
-            "QPushButton#micBtn { color: white; background-color: #ff4444; "
-            "border: 1px solid #ff4444; font-weight: bold; padding: 5px 12px; }");
+            "QPushButton#micBtn { background-color: #d93025; "
+            "border: 1px solid #d93025; padding: 0; }");
         pause_btn->setEnabled(true);
     } else {
         StopTranscription();
         mic_active = false;
-        mic_btn->setText("🔴 LISTEN");
+        mic_btn->setIcon(HomeInIcon("mic", 20));
+        mic_btn->setText("");
         mic_btn->setStyleSheet(
-            "QPushButton#micBtn { color: #ff6b6b; border: 1px solid #444; "
-            "border-radius: 4px; padding: 5px 12px; font-weight: bold; }");
+            "QPushButton#micBtn { border: 1px solid #444; "
+            "border-radius: 4px; padding: 0; }");
         pause_btn->setEnabled(false);
         mic_paused = false;
-        pause_btn->setText("⏸️");
+        pause_btn->setIcon(HomeInIcon("pause", 20));
+        pause_btn->setText("");
     }
 }
 
 void HomeInDock::OnTogglePause() {
     mic_paused = !mic_paused;
     stt_engine.SetPaused(mic_paused);
-    pause_btn->setText(mic_paused ? "▶️ RESUME" : "⏸️ PAUSE");
+    pause_btn->setIcon(HomeInIcon(mic_paused ? "play" : "pause", 20));
+    pause_btn->setText("");
     pause_btn->setStyleSheet(mic_paused ? "color: #ffaa00; font-weight: bold;" : "");
 }
 
@@ -1095,7 +1138,7 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
 
     if (results.size() > 1 || (results.size() == 1 && lyrics_search_input->text().isEmpty())) {
         for (const auto& s : results) {
-            QString source_badge = (s.source == "LRCLIB") ? "🌐 [Web] " : "🏠 [Local] ";
+            QString source_badge = (s.source == "LRCLIB") ? "[WEB] " : "[LOCAL] ";
             QString label = source_badge + QString::fromStdString(s.title);
             if (!s.artist.empty()) label += " - " + QString::fromStdString(s.artist);
             
@@ -1124,6 +1167,15 @@ void HomeInDock::OnSongSelected(QListWidgetItem* item) {
     if (!item) return;
     
     current_song = item->data(Qt::UserRole).value<SongLyric>();
+    
+    // OPTIMIZATION: If content is empty (from browse metadata), fetch it now.
+    if (current_song.content.empty()) {
+        SongLyric full_song;
+        if (lyrics_engine.GetDB().FindSong(current_song.title, current_song.artist, full_song)) {
+            current_song.content = full_song.content;
+        }
+    }
+
     current_song_lines.clear();
     lyrics_verses_list->clear();
     

@@ -133,6 +133,7 @@ private:
 
     QProgressBar *audio_level_bar;
     QLineEdit    *last_word_field;
+    QLabel       *web_icon_label;
     QTimer       *level_timer;
     std::vector<std::string> current_song_lines;
     int current_verse_index = -1;

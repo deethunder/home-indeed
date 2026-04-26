@@ -2,4 +2,28 @@
 <qresource>
     <file>assets/hi-logo.png</file>
 </qresource>
+<qresource prefix="/assets/icons">
+    <file alias="mic.svg">assets/icons/mic.svg</file>
+    <file alias="mic-off.svg">assets/icons/mic-off.svg</file>
+    <file alias="pause.svg">assets/icons/pause.svg</file>
+    <file alias="play.svg">assets/icons/play.svg</file>
+    <file alias="chevron-up.svg">assets/icons/chevron-up.svg</file>
+    <file alias="chevron-down.svg">assets/icons/chevron-down.svg</file>
+    <file alias="plus.svg">assets/icons/plus.svg</file>
+    <file alias="trash-2.svg">assets/icons/trash-2.svg</file>
+    <file alias="search.svg">assets/icons/search.svg</file>
+    <file alias="globe.svg">assets/icons/globe.svg</file>
+    <file alias="settings.svg">assets/icons/settings.svg</file>
+    <file alias="help-circle.svg">assets/icons/help-circle.svg</file>
+    <file alias="download.svg">assets/icons/download.svg</file>
+    <file alias="upload.svg">assets/icons/upload.svg</file>
+    <file alias="layout-panel-bottom.svg">assets/icons/layout-panel-bottom.svg</file>
+    <file alias="maximize-2.svg">assets/icons/maximize-2.svg</file>
+    <file alias="wifi.svg">assets/icons/wifi.svg</file>
+    <file alias="wifi-off.svg">assets/icons/wifi-off.svg</file>
+    <file alias="check.svg">assets/icons/check.svg</file>
+    <file alias="x.svg">assets/icons/x.svg</file>
+    <file alias="list-music.svg">assets/icons/list-music.svg</file>
+    <file alias="book-open.svg">assets/icons/book-open.svg</file>
+</qresource>
 </RCC>

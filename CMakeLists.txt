@@ -24,8 +24,8 @@ if(ENABLE_FRONTEND_API)
 endif()
 
 if(ENABLE_QT)
-  find_package(Qt6 COMPONENTS Widgets Core Network Gui Concurrent REQUIRED)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets Qt6::Network Qt6::Gui Qt6::Concurrent)
+  find_package(Qt6 COMPONENTS Widgets Core Network Gui Concurrent Svg REQUIRED)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets Qt6::Network Qt6::Gui Qt6::Concurrent Qt6::Svg)
   target_compile_options(
     ${CMAKE_PROJECT_NAME}
     PRIVATE $<$<C_COMPILER_ID:Clang,AppleClang>:-Wno-quoted-include-in-framework-header -Wno-comma>
@@ -53,6 +53,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   src/renderer/homein-renderer.cpp
   src/network/homein-http.cpp
   vendor/sqlite3/sqlite3.c
+  src/installer/resources.qrc
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE 
@@ -132,6 +133,7 @@ if(WIN32 AND ENABLE_QT)
         Qt6::Widgets 
         Qt6::Core 
         Qt6::Gui 
+        Qt6::Svg
         shlwapi 
         ole32 
         shell32 
