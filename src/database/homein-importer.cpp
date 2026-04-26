@@ -91,29 +91,35 @@ int HomeInImporter::ImportFromEW7(const QString& db_path) {
 
     // Step 4: Map columns (case-insensitive)
     std::string title_col, lyrics_col, author_col;
+    bool high_quality_lyrics = false;
     for (const auto& col : columns) {
         std::string lower = col;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         if (lower == "title" || lower == "name" || lower == "songtitle") title_col = col;
-        if (lower == "lyrics" || lower == "words" || lower == "content" || lower == "text" || lower == "body" || lower == "words_rtf") lyrics_col = col;
+        if (lower == "lyrics" || lower == "words" || lower == "content" || lower == "text" || lower == "body" || lower == "words_rtf") {
+            lyrics_col = col;
+            high_quality_lyrics = true;
+        }
         if (lower == "author" || lower == "artist" || lower == "copyright" || lower == "writer") author_col = col;
     }
     
-    // Fallback if lyrics column not found by standard names
-    if (lyrics_col.empty()) {
+    // If no high quality lyrics column found in 'song', we WILL check 'revision' table later
+    if (!high_quality_lyrics) {
         for (const auto& col : columns) {
             std::string lower = col;
             std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
             if (lower == "description" || lower == "revision") {
                 lyrics_col = col;
-                blog(LOG_INFO, "HomeIndeed: Using '%s' column as fallback for lyrics", col.c_str());
+                blog(LOG_INFO, "HomeIndeed: Found '%s' column, but will prefer 'revision' table if available", col.c_str());
                 break;
             }
         }
     }
 
-    if (title_col.empty() || lyrics_col.empty()) {
-        blog(LOG_INFO, "HomeIndeed: Lyrics not found in 'song' table, checking 'revision' table...");
+    // Step 5: Check 'revision' table first for EW7 if available, 
+    // unless we found a high-quality lyrics column in the main 'song' table.
+    if (!high_quality_lyrics || title_col.empty()) {
+        blog(LOG_INFO, "HomeIndeed: High-quality lyrics not in 'song' table, checking 'revision' table...");
         std::string rev_table;
         for (const auto& t : tables) {
             std::string lower = t;
@@ -160,12 +166,36 @@ int HomeInImporter::ImportFromEW7(const QString& db_path) {
             }
         }
 
+        // If we get here, we haven't returned yet, meaning we didn't find high quality lyrics in 'song'
+        // or a working 'revision' table. Let's dump some data to the log for debugging.
+        blog(LOG_INFO, "HomeIndeed: No obvious lyrics found. Dumping first 5 rows of 'song' table for inspection:");
+        sqlite3_stmt* diag_stmt;
+        if (sqlite3_prepare_v2(ew_db, "SELECT * FROM \"song\" LIMIT 5", -1, &diag_stmt, nullptr) == SQLITE_OK) {
+            int col_count = sqlite3_column_count(diag_stmt);
+            int row_idx = 0;
+            while (sqlite3_step(diag_stmt) == SQLITE_ROW) {
+                row_idx++;
+                for (int i = 0; i < col_count; ++i) {
+                    const char* col_name = sqlite3_column_name(diag_stmt, i);
+                    const char* val = (const char*)sqlite3_column_text(diag_stmt, i);
+                    if (val && strlen(val) > 0) {
+                        std::string snippet = std::string(val).substr(0, 100);
+                        blog(LOG_INFO, "  [ROW %d] Col '%s': \"%s...\"", row_idx, col_name, snippet.c_str());
+                    }
+                }
+            }
+            sqlite3_finalize(diag_stmt);
+        }
+
         blog(LOG_ERROR, "HomeIndeed: Could not find title or lyrics column in EW database");
         sqlite3_close(ew_db);
         return 0;
     }
 
-    // Standard single-table import
+    // Standard single-table import (if we found a high quality column in 'song')
+    blog(LOG_INFO, "HomeIndeed: Finalizing mapping - Title: '%s', Lyrics: '%s'", 
+         title_col.c_str(), lyrics_col.c_str());
+    
     std::string query = "SELECT \"" + title_col + "\", \"" + lyrics_col + "\"";
     if (!author_col.empty()) query += ", \"" + author_col + "\"";
     query += " FROM \"" + song_table + "\"";
@@ -212,17 +242,27 @@ int HomeInImporter::ExecuteImportQuery(sqlite3* ew_db, const std::string& query,
 
 QString HomeInImporter::StripRTF(const QString& rtf) {
     if (!rtf.contains("{\\rtf")) return rtf;
-    
+
     QString out = rtf;
-    // Remove RTF header and control groups
-    out.remove(QRegularExpression("\\{\\\\[^}]*\\}"));
-    // Remove all RTF control words (case-insensitive, with optional numeric param)
+
+    // 1. Remove RTF header groups: {\fonttbl ...}, {\colortbl ...}, etc.
+    out.remove(QRegularExpression("\\{\\\\[^\\{\\}]*\\}"));
+
+    // 2. Replace \par and \line with actual newlines BEFORE stripping words
+    out.replace(QRegularExpression("\\\\par[d]?\\b\\s*",
+        QRegularExpression::CaseInsensitiveOption), "\n");
+    out.replace(QRegularExpression("\\\\line\\b\\s*",
+        QRegularExpression::CaseInsensitiveOption), "\n");
+
+    // 3. Remove ALL RTF control words (case-insensitive, optional numeric param)
     out.remove(QRegularExpression("\\\\[a-zA-Z]+[-]?[0-9]*\\s?"));
-    // Remove remaining braces
-    out.remove("{");
-    out.remove("}");
-    // Normalize line breaks
-    out.replace(QRegularExpression("\\s*\\\\par\\s*", QRegularExpression::CaseInsensitiveOption), "\n");
+
+    // 4. Remove remaining braces
+    out.remove('{');
+    out.remove('}');
+
+    // 5. Collapse multiple blank lines and trim
+    out.replace(QRegularExpression("\\n{3,}"), "\n\n");
     out = out.trimmed();
     return out;
 }

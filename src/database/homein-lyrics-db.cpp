@@ -32,42 +32,25 @@ void HomeInLyricsDB::EnsureSchema() {
     if (!db) return;
 
     const char* sql =
-        // Main lyrics table
         "CREATE TABLE IF NOT EXISTS lyrics ("
-        "  id      INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  title   TEXT NOT NULL,"
-        "  artist  TEXT,"
-        "  content TEXT NOT NULL,"
-        "  source  TEXT,"
-        "  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
-        ");"
-
-        // FTS5 external-content table backed by lyrics
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  title TEXT NOT NULL, artist TEXT,"
+        "  content TEXT NOT NULL, source TEXT,"
+        "  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
         "CREATE VIRTUAL TABLE IF NOT EXISTS lyrics_fts USING fts5("
         "  title, artist, content,"
-        "  content='lyrics',"
-        "  content_rowid='id'"
-        ");"
-
-        // Keep FTS in sync on INSERT
+        "  content='lyrics', content_rowid='id');"
         "CREATE TRIGGER IF NOT EXISTS lyrics_ai AFTER INSERT ON lyrics BEGIN"
-        "  INSERT INTO lyrics_fts(rowid, title, artist, content)"
-        "    VALUES (new.id, new.title, new.artist, new.content);"
-        "END;"
-
-        // Keep FTS in sync on DELETE
+        "  INSERT INTO lyrics_fts(rowid,title,artist,content)"
+        "  VALUES(new.id,new.title,new.artist,new.content); END;"
         "CREATE TRIGGER IF NOT EXISTS lyrics_ad AFTER DELETE ON lyrics BEGIN"
-        "  INSERT INTO lyrics_fts(lyrics_fts, rowid, title, artist, content)"
-        "    VALUES ('delete', old.id, old.title, old.artist, old.content);"
-        "END;"
-
-        // Keep FTS in sync on UPDATE
+        "  INSERT INTO lyrics_fts(lyrics_fts,rowid,title,artist,content)"
+        "  VALUES('delete',old.id,old.title,old.artist,old.content); END;"
         "CREATE TRIGGER IF NOT EXISTS lyrics_au AFTER UPDATE ON lyrics BEGIN"
-        "  INSERT INTO lyrics_fts(lyrics_fts, rowid, title, artist, content)"
-        "    VALUES ('delete', old.id, old.title, old.artist, old.content);"
-        "  INSERT INTO lyrics_fts(rowid, title, artist, content)"
-        "    VALUES (new.id, new.title, new.artist, new.content);"
-        "END;";
+        "  INSERT INTO lyrics_fts(lyrics_fts,rowid,title,artist,content)"
+        "  VALUES('delete',old.id,old.title,old.artist,old.content);"
+        "  INSERT INTO lyrics_fts(rowid,title,artist,content)"
+        "  VALUES(new.id,new.title,new.artist,new.content); END;";
 
     char* err = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
@@ -221,8 +204,16 @@ std::vector<SongLyric> HomeInLyricsDB::Search(const std::string& query, int limi
 
 void HomeInLyricsDB::RebuildFTS() {
     if (!db) return;
-    // Rebuild using the FTS5 'rebuild' command — safer than DELETE+INSERT
-    sqlite3_exec(db, "INSERT INTO lyrics_fts(lyrics_fts) VALUES('rebuild');",
-                 nullptr, nullptr, nullptr);
-    blog(LOG_INFO, "HomeIndeed: FTS index rebuilt for lyrics database");
+    // 'rebuild' re-reads all content from the backing lyrics table automatically
+    // No need to list columns — safe and always in sync
+    char* err = nullptr;
+    sqlite3_exec(db,
+        "INSERT INTO lyrics_fts(lyrics_fts) VALUES('rebuild');",
+        nullptr, nullptr, &err);
+    if (err) {
+        blog(LOG_ERROR, "HomeIndeed: FTS rebuild failed: %s", err);
+        sqlite3_free(err);
+    } else {
+        blog(LOG_INFO, "HomeIndeed: FTS index rebuilt successfully");
+    }
 }
