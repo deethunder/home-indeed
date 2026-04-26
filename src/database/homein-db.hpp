@@ -60,6 +60,11 @@ public:
     std::vector<BibleVerse> GetChapterVerses(const std::string& book_name, int chapter, const std::string& translation_abbr);
 
     /**
+     * @brief Retrieves a range of verses within a chapter.
+     */
+    std::vector<BibleVerse> GetRangeVerses(const std::string& book_name, int chapter, int start_verse, int end_verse, const std::string& translation_abbr);
+
+    /**
      * @brief Returns the number of chapters in a book.
      */
     int GetChapterCount(const std::string& book_name);

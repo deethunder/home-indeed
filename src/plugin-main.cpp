@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "audio/homein-audio.hpp"
 #include "dock/homein-dock.hpp"
 #include "renderer/homein-renderer.hpp"
+#include <QDockWidget>
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
@@ -42,7 +43,16 @@ bool obs_module_load(void)
 	obs_frontend_add_dock_by_id("home_indeed_dock", "Home Indeed", (void*)dock);
 
 	// Register the Tools menu action
-	obs_frontend_add_tools_menu_qaction(obs_module_text("Home Indeed Settings"));
+	QAction *action = (QAction*)obs_frontend_add_tools_menu_qaction(obs_module_text("Home Indeed"));
+	QObject::connect(action, &QAction::triggered, []() {
+		QMainWindow *main_window = (QMainWindow*)obs_frontend_get_main_window();
+		QDockWidget *dock = main_window->findChild<QDockWidget*>("home_indeed_dock");
+		if (dock) {
+			dock->show();
+			dock->raise();
+			dock->setFocus();
+		}
+	});
 	
 	return true;
 }

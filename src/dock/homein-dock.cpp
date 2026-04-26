@@ -54,21 +54,15 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(250, 150);
 
-    // --- Open Databases ---
-    bool opened = false;
-    
-    // Priority 1: Check for the bundled Master Library in source (Development/Build environment)
-    if (QFile::exists("src/installer/assets/homein-bible.db")) {
-        opened = bible_db.Open("src/installer/assets/homein-bible.db");
-    }
-    
-    // Priority 2: Use the standard OBS data path
-    if (!opened) {
-        char *db_path = obs_module_file("homein-bible.db");
-        if (db_path) {
-            bible_db.Open(db_path);
-            bfree(db_path);
+    // Force-load the Master Library from the standard OBS data path
+    char *db_path = obs_module_file("homein-bible.db");
+    if (db_path) {
+        if (bible_db.Open(db_path)) {
+            blog(LOG_INFO, "HomeIndeed: Bible engine active (Path: %s)", db_path);
+        } else {
+            blog(LOG_ERROR, "HomeIndeed: FAILED to open Bible database at %s", db_path);
         }
+        bfree(db_path);
     }
     
     char *lyrics_db_path = obs_module_file("homein-lyrics.db");
@@ -221,9 +215,11 @@ void HomeInDock::SetupUI() {
     push_btn = new QPushButton("Push live", this);
     push_btn->setObjectName("pushBtn");
     push_btn->setFixedHeight(35);
+    push_btn->setMinimumWidth(100);
 
     action_layout->addWidget(bible_prev_btn);
     action_layout->addWidget(bible_next_btn);
+    action_layout->addStretch(); // Spring to prevent squashing
     action_layout->addWidget(clear_btn);
     action_layout->addWidget(push_btn);
     b_layout->addLayout(action_layout);
@@ -266,6 +262,7 @@ void HomeInDock::SetupUI() {
     l_layout->addLayout(l_search_layout);
     
     connect(lyrics_search_input, &QLineEdit::textChanged, this, &HomeInDock::OnLyricsSearchChanged);
+    connect(lyrics_search_input, &QLineEdit::returnPressed, [l_search_btn]() { l_search_btn->click(); });
 
     QHBoxLayout *l_options_layout = new QHBoxLayout();
     allow_web_checkbox = new QCheckBox("Allow Web Search", this);
@@ -321,9 +318,11 @@ void HomeInDock::SetupUI() {
     lyrics_push_btn = new QPushButton("Push live", this);
     lyrics_push_btn->setObjectName("pushBtn");
     lyrics_push_btn->setFixedHeight(35);
+    lyrics_push_btn->setMinimumWidth(100);
 
     stepper_layout->addWidget(prev_verse_btn);
     stepper_layout->addWidget(next_verse_btn);
+    stepper_layout->addStretch(); // Spring to prevent squashing
     stepper_layout->addWidget(lyrics_clear_btn);
     stepper_layout->addWidget(lyrics_push_btn);
     l_layout->addLayout(stepper_layout);
@@ -340,8 +339,16 @@ void HomeInDock::SetupUI() {
     q_layout->addWidget(q_label);
 
     queue_list = new QListWidget(this);
-    queue_list->setStyleSheet("background-color: #1a1a1a; color: #ffffff;");
+    queue_list->setStyleSheet("background-color: #1a1a1a; color: #ffffff; max-height: 120px;");
     q_layout->addWidget(queue_list);
+
+    QLabel *qb_label = new QLabel("Verse/Line Breakdown (Click to present):", this);
+    qb_label->setStyleSheet("font-size: 11px; color: #8ab4f8; margin-top: 5px;");
+    q_layout->addWidget(qb_label);
+
+    queue_breakdown_list = new QListWidget(this);
+    queue_breakdown_list->setStyleSheet("background-color: #111; color: #bdc1c6;");
+    q_layout->addWidget(queue_breakdown_list);
 
     QHBoxLayout *q_action_layout = new QHBoxLayout();
     up_queue_btn = new QPushButton(HomeInIcon("chevron-up", 18), "", this);
@@ -364,7 +371,18 @@ void HomeInDock::SetupUI() {
     q_action_layout->addWidget(push_queue_btn);
     q_layout->addLayout(q_action_layout);
     
-    tabs_widget->addTab(queue_tab, HomeInIcon("plus", 18), "Queue");
+    tabs_widget->addTab(queue_tab, HomeInIcon("list", 18), "Queue");
+    
+    // INTERACTIVE QUEUE: Double-click to push live
+    connect(queue_list, &QListWidget::itemDoubleClicked, this, &HomeInDock::UpdateOverlayFromSelection);
+
+    // TAB GUARD: Clear ghost messages when switching
+    connect(tabs_widget, &QTabWidget::currentChanged, [this](int index) {
+        if (index != 2) {
+            lyrics_results_list->setVisible(false);
+            lyrics_results_list->clear();
+        }
+    });
 
     view_stack->addWidget(tabs_page);
 
@@ -377,24 +395,8 @@ void HomeInDock::SetupUI() {
     SetupToolbar(main_layout);
 
     // --- Connections ---
-    connect(search_btn, &QPushButton::clicked, [this]() {
-        QString qText = bible_search_input->text().trimmed();
-        if (qText.isEmpty()) {
-            PopulateBookGrid();
-            return;
-        }
-
-        std::string text = qText.toStdString();
-        int chapters = bible_db.GetChapterCount(text);
-        if (chapters > 0) {
-            current_search_book = text;
-            PopulateChapterGrid(text, chapters);
-        } else {
-            auto refs = ref_parser.Parse(text);
-            if (refs.empty()) PerformFuzzySearch(text);
-            else CheckForReferences(text);
-        }
-    });
+    connect(search_btn, &QPushButton::clicked, this, &HomeInDock::OnBibleSearchRequested);
+    connect(bible_search_input, &QLineEdit::returnPressed, this, &HomeInDock::OnBibleSearchRequested);
     connect(help_btn,      &QPushButton::clicked, this, &HomeInDock::OnShowHelp);
     connect(l_search_btn,  &QPushButton::clicked, [this]() {
         SearchLyrics(lyrics_search_input->text().toStdString());
@@ -470,6 +472,22 @@ void HomeInDock::SetupUI() {
     connect(up_queue_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueUp);
     connect(down_queue_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueDown);
 
+    connect(queue_list, &QListWidget::itemSelectionChanged,
+            this, &HomeInDock::UpdateOverlayFromSelection);
+    connect(queue_breakdown_list, &QListWidget::itemClicked, [this](QListWidgetItem* item) {
+        HomeInRenderer* r = GetActiveRenderer();
+        if (r && item) {
+            bool isLyrics = queue_list->currentItem() && queue_list->currentItem()->data(Qt::UserRole + 2).toBool();
+            std::string text = item->text().toStdString();
+            if (isLyrics) {
+                r->SetText("\x01" + text);
+            } else {
+                // For Bible, text has ref + \n + verse content. 
+                // We keep as is for professional output.
+                r->SetText(text);
+            }
+        }
+    });
     connect(queue_list, &QListWidget::itemDoubleClicked,
             this, &HomeInDock::UpdateOverlayFromSelection);
     connect(lyrics_results_list, &QListWidget::itemClicked,
@@ -511,11 +529,14 @@ void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
     pause_btn->setEnabled(false);
 
     focus_combo = new QComboBox(this);
-    focus_combo->addItem("🎯 Auto",   (int)FocusMode::Auto);
-    focus_combo->addItem("📖 Bible",  (int)FocusMode::Bible);
-    focus_combo->addItem("🎵 Songs",  (int)FocusMode::Songs);
+    focus_combo->addItem(HomeInIcon("target", 14), "Auto",  (int)FocusMode::Auto);
+    focus_combo->addItem(HomeInIcon("book", 14),   "Bible", (int)FocusMode::Bible);
+    focus_combo->addItem(HomeInIcon("music", 14),  "Songs", (int)FocusMode::Songs);
+    focus_combo->setIconSize(QSize(14, 14));
     focus_combo->setStyleSheet(
-        "background: #1a1a1a; color: #aaa; border: 1px solid #444;");
+        "QComboBox { background: #1a1a1a; color: #8ab4f8; border: 1px solid #444; border-radius: 4px; padding: 2px 5px; }"
+        "QComboBox::drop-down { border: 0px; }"
+        "QComboBox::down-arrow { image: none; }"); // Clean look
 
     QPushButton *gear_btn = new QPushButton(HomeInIcon("settings", 18), "", this);
     gear_btn->setToolTip("Configure Plugin");
@@ -576,6 +597,10 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     a_layout->addWidget(align_combo);
     d_layout->addLayout(a_layout);
     
+    connect(bible_version_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this]() {
+        RefreshBibleView();
+    });
+
     QHBoxLayout *l_pp_layout = new QHBoxLayout();
     l_pp_layout->addWidget(new QLabel("Lyrics Lines per Page:", parent));
     lines_per_page_combo = new QComboBox(parent);
@@ -607,7 +632,6 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     auto_push_checkbox->setChecked(auto_push);
     a_group_layout->addWidget(auto_push_checkbox);
 
-    layout->addWidget(auto_group);
     layout->addWidget(disp_group);
 
     QGroupBox *help_group = new QGroupBox("Audio Setup Guide", parent);
@@ -684,14 +708,49 @@ void HomeInDock::PopulateTranslations() {
     });
 
     for (const auto& t : translations) {
-        bible_version_combo->addItem(QString("%1 (%2)").arg(QString::fromStdString(t.name)).arg(QString::fromStdString(t.abbreviation)), 
-                                    QString::fromStdString(t.abbreviation));
+        bible_version_combo->addItem(QString::fromStdString(t.abbreviation), QString::fromStdString(t.abbreviation));
     }
 }
 
 // Helper: always read abbreviation from item data, never from display text.
+void HomeInDock::RefreshBibleView() {
+    if (current_chapter_verses.empty()) return;
+    
+    // Capture state
+    int saved_idx = current_bible_verse_index;
+    const BibleVerse& current = current_chapter_verses[std::max(0, saved_idx)];
+    std::string book = current.book_name;
+    int chap = current.chapter;
+
+    // Refresh entire chapter in new translation
+    current_chapter_verses = bible_db.GetChapterVerses(book, chap, CurrentTranslation());
+    
+    if (!current_chapter_verses.empty()) {
+        bible_verses_list->clear();
+        for (const auto& v : current_chapter_verses) {
+            bible_verses_list->addItem(QString::number(v.verse) + " " + QString::fromUtf8(v.text.c_str()));
+        }
+        
+        // Restore selection and update overlay if live
+        ShowBibleVerseAtIndex(std::min(saved_idx, (int)current_chapter_verses.size() - 1));
+        
+        // Auto-update live overlay if something is already showing
+        HomeInRenderer* r = GetActiveRenderer();
+        if (r) {
+            const BibleVerse& v = current_chapter_verses[std::max(0, current_bible_verse_index)];
+            QString ref = QString::fromStdString(v.book_name) + " " +
+                          QString::number(v.chapter) + ":" +
+                          QString::number(v.verse) + " (" + 
+                          QString::fromStdString(CurrentTranslation()) + ")";
+            suggestion_label->setText(ref);
+            r->SetText(ref.toStdString() + "\n" + std::to_string(v.verse) + " " + v.text);
+        }
+    }
+}
+
 std::string HomeInDock::CurrentTranslation() const {
-    return bible_version_combo->currentData().toString().toStdString();
+    if (!bible_version_combo) return "KJV";
+    return bible_version_combo->currentText().toStdString();
 }
 
 void HomeInDock::AddToQueue() {
@@ -723,16 +782,25 @@ void HomeInDock::AddToQueue() {
         } else if (tabs_widget->currentIndex() == 1 && !current_chapter_verses.empty()) {
             // Handle Bible Range sequencing
             QString label = suggestion_label->text();
-            QListWidgetItem* item = new QListWidgetItem(label + " (Sequence)", queue_list);
+            QListWidgetItem* item = new QListWidgetItem(label, queue_list);
             item->setData(Qt::UserRole + 2, false); // Mark as Bible
+            item->setIcon(HomeInIcon("book", 16));
             
-            // Store the chapter name, book, and current index so it can be reloaded
+            // Store precise range
             QVariantMap bibleData;
             bibleData["book"] = QString::fromStdString(current_search_book);
             bibleData["chapter"] = current_chapter_verses[0].chapter;
-            bibleData["index"] = current_bible_verse_index;
+            bibleData["start"] = current_chapter_verses[0].verse;
+            bibleData["end"] = current_chapter_verses.back().verse;
             bibleData["translation"] = QString::fromStdString(CurrentTranslation());
             item->setData(Qt::UserRole, bibleData);
+            
+            // Debug log the range we are storing
+            blog(LOG_INFO, "HomeIndeed: Queued Bible range %s %d:%d-%d", 
+                bibleData["book"].toString().toUtf8().constData(),
+                bibleData["chapter"].toInt(),
+                bibleData["start"].toInt(),
+                bibleData["end"].toInt());
         } else {
             QListWidgetItem* item = new QListWidgetItem(text, queue_list);
             item->setData(Qt::UserRole + 2, isLyrics);
@@ -764,33 +832,43 @@ void HomeInDock::MoveQueueDown() {
 }
 
 void HomeInDock::UpdateOverlayFromSelection() {
+    queue_breakdown_list->clear();
     if (queue_list->currentItem()) {
         HomeInRenderer *r = GetActiveRenderer();
-        if (r) {
-            QListWidgetItem* item = queue_list->currentItem();
-            bool isLyrics = item->data(Qt::UserRole + 2).toBool();
+        QListWidgetItem* item = queue_list->currentItem();
+        bool isLyrics = item->data(Qt::UserRole + 2).toBool();
+        
+        if (!isLyrics && item->data(Qt::UserRole).typeId() == QMetaType::QVariantMap) {
+            // Bible Sequence: Reload chapter context with precise range
+            QVariantMap data = item->data(Qt::UserRole).toMap();
+            std::string book = data["book"].toString().toStdString();
+            int chapter = data["chapter"].toInt();
+            int start = data["start"].toInt();
+            int end = data["end"].toInt();
+            std::string trans = data["translation"].toString().toStdString();
             
-            if (!isLyrics && item->data(Qt::UserRole).typeId() == QMetaType::QVariantMap) {
-                // Bible Sequence: Reload the chapter context so prev/next work
-                QVariantMap data = item->data(Qt::UserRole).toMap();
-                std::string book = data["book"].toString().toStdString();
-                int chapter = data["chapter"].toInt();
-                int index = data["index"].toInt();
-                std::string trans = data["translation"].toString().toStdString();
+            auto verses = bible_db.GetRangeVerses(book, chapter, start, end, trans);
+            for (const auto& v : verses) {
+                QString ref = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
+                if (!v.translation_abbr.empty()) ref += " (" + QString::fromStdString(v.translation_abbr) + ")";
                 
-                if (current_search_book != book || current_chapter_verses.empty()) {
-                    current_search_book = book;
-                    current_chapter_verses = bible_db.GetChapterVerses(book, chapter, trans);
+                QListWidgetItem* b_item = new QListWidgetItem(ref + "\n" + QString::number(v.verse) + " " + QString::fromStdString(v.text), queue_breakdown_list);
+                b_item->setData(Qt::UserRole, QString::fromStdString(v.text));
+            }
+        } else if (isLyrics) {
+            // Lyrics: Show grouped lines (2 or 4)
+            SongLyric song = item->data(Qt::UserRole).value<SongLyric>();
+            QStringList lines = QString::fromStdString(song.content).split('\n', Qt::SkipEmptyParts);
+            
+            int perPage = lines_per_page_combo->currentData().toInt();
+            if (perPage < 1) perPage = 2;
+
+            for (int i = 0; i < lines.size(); i += perPage) {
+                QString group;
+                for (int j = 0; j < perPage && (i + j) < lines.size(); ++j) {
+                    group += lines[i + j] + "\n";
                 }
-                
-                if (index >= 0 && index < (int)current_chapter_verses.size()) {
-                    ShowBibleVerseAtIndex(index);
-                    const auto& v = current_chapter_verses[index];
-                    r->SetText(v.text);
-                }
-            } else {
-                std::string text = item->text().toStdString();
-                r->SetText(isLyrics ? ("\x01" + text) : text);
+                new QListWidgetItem(group.trimmed(), queue_breakdown_list);
             }
         }
     }
@@ -814,6 +892,7 @@ void HomeInDock::UpdateAudioTest() {
     if (r) {
         if (!settings_synced) {
             ApplySettings();
+            RefreshBibleView();
             settings_synced = true;
         }
         r->PrepareTexture();
@@ -958,66 +1037,6 @@ void HomeInDock::OnImportEasyWorship() {
     }
 }
 
-void HomeInDock::ClearBibleGrid() {
-    QLayoutItem *child;
-    while ((child = bible_grid_layout->takeAt(0)) != nullptr) {
-        delete child->widget();
-        delete child;
-    }
-}
-
-void HomeInDock::PopulateChapterGrid(const std::string& book_name, int count) {
-    ClearBibleGrid();
-    bible_suggestion_view->setVisible(false);
-    bible_grid_container->setVisible(true);
-    suggestion_label->setText(
-        QString("Selecting Chapters for %1:").arg(QString::fromStdString(book_name)));
-
-    int cols = 6;
-    for (int i = 0; i < count; ++i) {
-        QPushButton *btn = new QPushButton(QString::number(i + 1), this);
-        btn->setFixedSize(35, 30);
-        btn->setObjectName("searchBtn");
-        btn->setStyleSheet(
-            "QPushButton { font-size: 13px; font-weight: bold; "
-            "background-color: #35363a; border: 1px solid #444; }"
-            "QPushButton:hover { background-color: #4285f4; border-color: #4285f4; }");
-        connect(btn, &QPushButton::clicked, this, &HomeInDock::OnChapterSelected);
-        bible_grid_layout->addWidget(btn, i / cols, i % cols);
-    }
-}
-
-void HomeInDock::PopulateBookGrid() {
-    ClearBibleGrid();
-    bible_suggestion_view->setVisible(false);
-    bible_grid_container->setVisible(true);
-    suggestion_label->setText("Select a Bible Book:");
-
-    std::vector<std::string> books = bible_db.GetAllBooks();
-    int cols = 4;
-    for (size_t i = 0; i < books.size(); ++i) {
-        QPushButton *btn = new QPushButton(QString::fromStdString(books[i]), this);
-        btn->setFixedHeight(30);
-        btn->setObjectName("searchBtn");
-        btn->setStyleSheet(
-            "QPushButton { font-size: 11px; font-weight: bold; "
-            "background-color: #35363a; border: 1px solid #444; }"
-            "QPushButton:hover { background-color: #4285f4; border-color: #4285f4; }");
-        connect(btn, &QPushButton::clicked, this, &HomeInDock::OnBookSelected);
-        bible_grid_layout->addWidget(btn, (int)i / cols, (int)i % cols);
-    }
-}
-
-void HomeInDock::OnBookSelected() {
-    QPushButton *btn = qobject_cast<QPushButton*>(sender());
-    if (!btn) return;
-    std::string book = btn->text().toStdString();
-    int chapters = bible_db.GetChapterCount(book);
-    if (chapters > 0) {
-        current_search_book = book;
-        PopulateChapterGrid(book, chapters);
-    }
-}
 
 void HomeInDock::ApplySettings() {
     OverlaySettings s;
@@ -1029,6 +1048,83 @@ void HomeInDock::ApplySettings() {
     
     HomeInRenderer* r = GetActiveRenderer();
     if (r) r->UpdateSettings(s);
+}
+
+void HomeInDock::OnBibleSearchRequested() {
+    if (is_searching) return; // Crash Guard
+    is_searching = true;
+
+    QString qText = bible_search_input->text().trimmed();
+    if (qText.isEmpty()) {
+        PopulateBookGrid();
+        is_searching = false;
+        return;
+    }
+
+    std::string text = qText.toStdString();
+    int chapters = bible_db.GetChapterCount(text);
+    if (chapters > 0) {
+        current_search_book = text;
+        PopulateChapterGrid(text, chapters);
+    } else {
+        CheckForReferences(text);
+        // Fuzzy search is handled inside CheckForReferences if refs empty
+    }
+    
+    is_searching = false;
+}
+
+void HomeInDock::PopulateBookGrid() {
+    ClearBibleGrid();
+    bible_grid_container->setVisible(true);
+    bible_verses_list->setVisible(false);
+    suggestion_label->setText("Select a book to browse:");
+
+    auto books = bible_db.GetAllBooks();
+    int row = 0, col = 0;
+    for (const auto& book : books) {
+        QPushButton *btn = new QPushButton(QString::fromStdString(book), bible_grid_container);
+        btn->setStyleSheet("padding: 4px; font-size: 11px; min-width: 60px;");
+        connect(btn, &QPushButton::clicked, this, &HomeInDock::OnBookSelected);
+        bible_grid_layout->addWidget(btn, row, col);
+        col++;
+        if (col >= 6) { col = 0; row++; }
+    }
+}
+
+void HomeInDock::PopulateChapterGrid(const std::string& book_name, int count) {
+    ClearBibleGrid();
+    bible_grid_container->setVisible(true);
+    bible_verses_list->setVisible(false);
+    suggestion_label->setText(QString::fromStdString(book_name) + ": Select Chapter");
+
+    int row = 0, col = 0;
+    for (int i = 1; i <= count; ++i) {
+        QPushButton *btn = new QPushButton(QString::number(i), bible_grid_container);
+        btn->setFixedSize(35, 30);
+        connect(btn, &QPushButton::clicked, this, &HomeInDock::OnChapterSelected);
+        bible_grid_layout->addWidget(btn, row, col);
+        col++;
+        if (col >= 10) { col = 0; row++; }
+    }
+}
+
+void HomeInDock::ClearBibleGrid() {
+    QLayoutItem *item;
+    while ((item = bible_grid_layout->takeAt(0)) != nullptr) {
+        if (item->widget()) delete item->widget();
+        delete item;
+    }
+}
+
+void HomeInDock::OnBookSelected() {
+    QPushButton *btn = qobject_cast<QPushButton*>(sender());
+    if (btn) {
+        std::string book = btn->text().toStdString();
+        current_search_book = book;
+        int chapters = bible_db.GetChapterCount(book);
+        PopulateChapterGrid(book, chapters);
+    }
 }
 
 void HomeInDock::OnChapterSelected() {
@@ -1043,7 +1139,7 @@ void HomeInDock::OnChapterSelected() {
         bible_grid_container->setVisible(false);
         bible_verses_list->clear();
         for (const auto& v : current_chapter_verses) {
-            bible_verses_list->addItem(QString::number(v.verse) + " " + QString::fromStdString(v.text));
+            bible_verses_list->addItem(QString::number(v.verse) + " " + QString::fromUtf8(v.text.c_str()));
         }
         bible_verses_list->setVisible(true);
     }
@@ -1116,11 +1212,11 @@ void HomeInDock::ShowBibleVerseAtIndex(int index) {
     bible_verses_list->setCurrentRow(index);
     bible_verses_list->scrollToItem(bible_verses_list->currentItem());
 
-    QString ref = QString::fromStdString(verse.book_name) + " " +
+    QString ref = QString::fromUtf8(verse.book_name.c_str()) + " " +
                   QString::number(verse.chapter) + ":" +
                   QString::number(verse.verse);
     if (!verse.translation_abbr.empty()) {
-        ref += " (" + QString::fromStdString(verse.translation_abbr) + ")";
+        ref += " (" + QString::fromUtf8(verse.translation_abbr.c_str()) + ")";
     }
     suggestion_label->setText(ref);
 }
@@ -1133,18 +1229,41 @@ void HomeInDock::CheckForReferences(const std::string& text) {
     std::string version = CurrentTranslation();
 
     if (!refs.empty()) {
-        const auto& ref = refs[0]; // Process the first reference for chapter loading
-
-        current_chapter_verses = bible_db.GetChapterVerses(ref.book, ref.chapter, version);
+        const auto& ref = refs[0]; 
+        current_search_book = ref.book;
+        
+        // Safety: Clear before loading new range to prevent memory collisions
+        current_chapter_verses.clear();
+        
+        if (ref.verse_end > ref.verse_start) {
+            current_chapter_verses = bible_db.GetRangeVerses(ref.book, ref.chapter, ref.verse_start, ref.verse_end, version);
+        } else {
+            current_chapter_verses = bible_db.GetChapterVerses(ref.book, ref.chapter, version);
+        }
 
         if (!current_chapter_verses.empty()) {
             current_bible_verse_index = 0;
-            for (size_t j = 0; j < current_chapter_verses.size(); ++j) {
-                if (current_chapter_verses[j].verse == ref.verse_start) {
-                    current_bible_verse_index = (int)j;
-                    break;
+            // If it's a chapter load, find the start verse
+            if (ref.verse_end <= ref.verse_start) {
+                for (size_t j = 0; j < current_chapter_verses.size(); ++j) {
+                    if (current_chapter_verses[j].verse == ref.verse_start) {
+                        current_bible_verse_index = (int)j;
+                        break;
+                    }
                 }
             }
+            
+            // Set the suggestion label to the FULL range for clarity
+            QString full_ref = QString::fromUtf8(current_chapter_verses[0].book_name.c_str()) + " " +
+                               QString::number(current_chapter_verses[0].chapter) + ":" +
+                               QString::number(current_chapter_verses[0].verse);
+            if (current_chapter_verses.size() > 1) {
+                full_ref += "-" + QString::number(current_chapter_verses.back().verse);
+            }
+            if (!current_chapter_verses[0].translation_abbr.empty()) {
+                full_ref += " (" + QString::fromUtf8(current_chapter_verses[0].translation_abbr.c_str()) + ")";
+            }
+            suggestion_label->setText(full_ref);
 
             ShowBibleVerseAtIndex(current_bible_verse_index);
 
@@ -1229,6 +1348,8 @@ void HomeInDock::OnLyricsSearchChanged(const QString& text) {
 }
 
 void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
+    if (tabs_widget->currentIndex() != 2) return; // ONLY show in Lyrics tab!
+
     lyrics_results_list->clear();
     lyrics_verses_list->clear();
     if (results.empty()) {

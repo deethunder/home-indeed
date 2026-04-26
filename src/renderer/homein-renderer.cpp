@@ -148,16 +148,23 @@ void HomeInRenderer::PrepareTexture() {
 
         int a8 = (int)(alpha * 255.0f);
 
-        auto drawWithOutline = [&](const QRect& r, const QString& text, const QFont& f, int extra_flags = 0) {
-            painter.setFont(f);
-            
+        auto drawWithOutline = [&](const QRect& r, const QString& text, QFont& f, int extra_flags = 0) {
             int flags = draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap | extra_flags;
             
+            // DYNAMIC AUTO-SCALING: Shrink font until it fits the rectangle
+            int minSize = 12;
+            while (f.pointSize() > minSize) {
+                QFontMetrics fm(f);
+                QRect boundingRect = fm.boundingRect(r, flags, text);
+                if (boundingRect.height() <= r.height()) break;
+                f.setPointSize(f.pointSize() - 2);
+            }
+
+            painter.setFont(f);
             QString colorStr = draw_settings.font_color.toLower().trimmed();
             if (colorStr != "black") colorStr = "white"; 
             
             QColor textColor = (colorStr == "black") ? Qt::black : Qt::white;
-            
             painter.setPen(QColor(textColor.red(), textColor.green(), textColor.blue(), a8));
             painter.drawText(r, flags, text);
         };

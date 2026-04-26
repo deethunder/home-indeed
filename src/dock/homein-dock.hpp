@@ -56,6 +56,7 @@ private slots:
     void OnTogglePause();
     void OnImportEasyWorship();
     void OnShowHelp();
+    void OnBibleSearchRequested();
     void OnLyricsSearchChanged(const QString& text);
     void SetFocusMode(FocusMode mode);
 
@@ -76,6 +77,7 @@ private:
     void OnChapterSelected();
     void OnBookSelected();
     void ApplySettings();
+    void RefreshBibleView();
 
     // FIX #1: Helper that always returns the clean abbreviation (e.g. "KJV")
     // from item data rather than the display text.
@@ -84,6 +86,7 @@ private:
     FocusMode current_focus = FocusMode::Auto;
     bool mic_active  = false;
     bool mic_paused  = false;
+    bool is_searching = false;
 
     QPushButton    *mic_btn;
     QPushButton    *pause_btn;
@@ -116,6 +119,7 @@ private:
     QListWidget *lyrics_results_list;
     QListWidget *lyrics_verses_list;
     QListWidget *queue_list;
+    QListWidget *queue_breakdown_list;
     QPushButton *push_queue_btn;
     QPushButton *clear_queue_btn;
     QPushButton *up_queue_btn;
@@ -146,5 +150,6 @@ private:
     HomeInDB             bible_db;
     HomeInLyricsEngine   lyrics_engine;
     HomeInUpdateChecker  updater;
+
     SongLyric current_song;
 };
