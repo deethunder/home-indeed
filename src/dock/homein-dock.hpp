@@ -55,6 +55,7 @@ private slots:
     void OnTogglePause();
     void OnImportEasyWorship();
     void OnShowHelp();
+    void OnLyricsSearchChanged(const QString& text);
     void SetFocusMode(FocusMode mode);
 
 private:

@@ -241,6 +241,8 @@ void HomeInDock::SetupUI() {
     l_search_btn->setObjectName("searchBtn");
     l_search_layout->addWidget(l_search_btn);
     l_layout->addLayout(l_search_layout);
+    
+    connect(lyrics_search_input, &QLineEdit::textChanged, this, &HomeInDock::OnLyricsSearchChanged);
 
     QHBoxLayout *l_options_layout = new QHBoxLayout();
     allow_web_checkbox = new QCheckBox("Web Search (LRCLIB)", this);
@@ -426,6 +428,7 @@ void HomeInDock::SetupUI() {
 
     // FIX: Apply initial settings to the renderer immediately
     ApplySettings();
+    OnLyricsSearchChanged(""); 
 }
 
 void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
@@ -1058,7 +1061,6 @@ void HomeInDock::ShowBibleSuggestion(const std::string& book, int chapter,
             .arg(QString::fromStdString(book)).arg(chapter).arg(verse));
     bible_suggestion_view->setText(QString::fromStdString(text));
 }
-
 void HomeInDock::SearchLyrics(const std::string& query) {
     lyrics_results_list->clear();
     lyrics_results_list->setVisible(false);
@@ -1070,6 +1072,18 @@ void HomeInDock::SearchLyrics(const std::string& query) {
         });
 }
 
+void HomeInDock::OnLyricsSearchChanged(const QString& text) {
+    if (text.trimmed().isEmpty()) {
+        lyrics_engine.GetLocalLibrary([this](const std::vector<SongLyric>& results) {
+            QMetaObject::invokeMethod(this, "ShowLyricsResults",
+                                       Qt::QueuedConnection,
+                                       Q_ARG(std::vector<SongLyric>, results));
+        });
+    } else {
+        SearchLyrics(text.toStdString());
+    }
+}
+
 void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
     lyrics_results_list->clear();
     lyrics_verses_list->clear();
@@ -1079,9 +1093,10 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
         return;
     }
 
-    if (results.size() > 1) {
+    if (results.size() > 1 || (results.size() == 1 && lyrics_search_input->text().isEmpty())) {
         for (const auto& s : results) {
-            QString label = QString::fromStdString(s.title);
+            QString source_badge = (s.source == "LRCLIB") ? "🌐 [Web] " : "🏠 [Local] ";
+            QString label = source_badge + QString::fromStdString(s.title);
             if (!s.artist.empty()) label += " - " + QString::fromStdString(s.artist);
             
             QListWidgetItem* item = new QListWidgetItem(label, lyrics_results_list);
@@ -1090,8 +1105,11 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
             item->setData(Qt::UserRole, data);
         }
         lyrics_results_list->setVisible(true);
-        suggestion_label->setText(QString("Found %1 matches. Select one above.").arg(results.size()));
-    } else {
+        if (!lyrics_search_input->text().isEmpty())
+            suggestion_label->setText(QString("Found %1 matches. Select one above.").arg(results.size()));
+        else
+            suggestion_label->setText(QString("My Library (%1 songs):").arg(results.size()));
+    } else if (results.size() == 1) {
         // Only one result, show it directly
         lyrics_results_list->setVisible(false);
         QListWidgetItem dummy;

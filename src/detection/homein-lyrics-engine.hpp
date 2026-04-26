@@ -32,6 +32,7 @@ public:
      * Fully Qt-thread-safe — no std::thread used.
      */
     void Search(const std::string& query, bool allow_web, SearchCallback callback);
+    void GetLocalLibrary(SearchCallback callback);
 
 private:
     // FIX #6: Removed FetchFromLRCLIB(). The old implementation called

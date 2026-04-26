@@ -73,3 +73,8 @@ void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query,
         }, Qt::QueuedConnection);
     });
 }
+
+void HomeInLyricsEngine::GetLocalLibrary(SearchCallback callback) {
+    auto results = local_db.GetLibrary(10000);
+    callback(results);
+}
