@@ -4,6 +4,9 @@
 #include <vector>
 #include <atomic>
 
+struct obs_source;
+typedef struct obs_source obs_source_t;
+
 /**
  * @class HomeInAudioHandler
  * @brief Singleton handler for OBS audio source filtering.
@@ -22,6 +25,11 @@ public:
      * @brief Returns the last recorded Peak audio level (0.0 to 1.0).
      */
     float GetLastLevel() const { return current_level.load(); }
+    
+    /**
+     * @brief Latches the AI listener onto a specific OBS source.
+     */
+    void SetCaptureSource(obs_source_t* new_source);
 
 private:
     mutable std::mutex buffer_mutex;
@@ -32,6 +40,8 @@ private:
     std::atomic<float> current_level{0.0f};
 
     static constexpr uint32_t TARGET_SAMPLE_RATE = 16000;
+
+    obs_source_t* current_latch_source = nullptr;
 };
 
 // Global accessor or singleton for the active handler
