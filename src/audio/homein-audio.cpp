@@ -1,9 +1,28 @@
 #include "homein-audio.hpp"
 #include <obs-module.h>
+#include <obs.h>
 #include <memory>
+#include <mutex>
 
 static std::unique_ptr<HomeInAudioHandler> g_audio_handler = nullptr;
 static std::mutex g_handler_mutex;
+
+static void on_source_audio_capture(void* data, obs_source_t* source, const struct audio_data* audio, bool muted) {
+    UNUSED_PARAMETER(source);
+    if (muted || !audio) return;
+    
+    HomeInAudioHandler* handler = static_cast<HomeInAudioHandler*>(data);
+    
+    // Map 'audio_data' to 'obs_audio_data' structure for ProcessAudio
+    struct obs_audio_data obs_audio;
+    for (int i = 0; i < 8; i++) {
+        obs_audio.data[i] = (i < MAX_AUDIO_CHANNELS) ? audio->data[i] : nullptr;
+    }
+    obs_audio.frames = audio->frames;
+    obs_audio.timestamp = audio->timestamp;
+    
+    handler->ProcessAudio(&obs_audio);
+}
 
 HomeInAudioHandler* GetAudioHandler() {
     std::lock_guard<std::mutex> lock(g_handler_mutex);
@@ -37,9 +56,7 @@ static void* homein_audio_filter_create(obs_data_t* settings, obs_source_t* cont
 
 static void homein_audio_filter_destroy(void* data) {
     // Note: We keep the global handler alive or manage it carefully
-    // For now, let's just null it out if this filter is destroyed
     if (data == g_audio_handler.get()) {
-        // In a more robust system, we'd delete here, but many instances might exist
     }
 }
 
@@ -70,6 +87,28 @@ HomeInAudioHandler::HomeInAudioHandler() {
 }
 
 HomeInAudioHandler::~HomeInAudioHandler() {
+    SetCaptureSource(nullptr); // Unlatch on destroy
+}
+
+void HomeInAudioHandler::SetCaptureSource(obs_source_t* new_source) {
+    std::lock_guard<std::mutex> lock(buffer_mutex);
+    
+    if (current_latch_source == new_source) return;
+
+    // Unlatch old source
+    if (current_latch_source) {
+        obs_source_remove_audio_capture_callback(current_latch_source, on_source_audio_capture, this);
+        obs_source_release(current_latch_source);
+        current_latch_source = nullptr;
+    }
+
+    // Latch new source
+    if (new_source) {
+        current_latch_source = new_source;
+        // NOTE: We assume ownership of the reference from the caller
+        obs_source_add_audio_capture_callback(current_latch_source, on_source_audio_capture, this);
+        blog(LOG_INFO, "HomeIndeed: AI Latched onto source '%s'", obs_source_get_name(new_source));
+    }
 }
 
 void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {

@@ -74,6 +74,7 @@ private:
     void ClearBibleGrid();
     void PopulateChapterGrid(const std::string& book_name, int count);
     void PopulateBookGrid();
+    void PopulateAudioSources();
     void OnChapterSelected();
     void OnBookSelected();
     void ApplySettings();
@@ -127,6 +128,7 @@ private:
 
     QComboBox  *align_combo;
     QComboBox  *font_color_combo;
+    QComboBox  *audio_source_combo;
     QCheckBox  *fullscreen_checkbox;
     QComboBox  *bible_version_combo;
     QComboBox  *lines_per_page_combo;

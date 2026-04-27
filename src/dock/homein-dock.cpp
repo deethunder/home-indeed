@@ -617,6 +617,34 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     f_color_layout->addWidget(font_color_combo);
     d_layout->addLayout(f_color_layout);
 
+    QGroupBox *ai_group = new QGroupBox("AI Voice Intelligence", parent);
+    QVBoxLayout *ai_layout = new QVBoxLayout(ai_group);
+    
+    QHBoxLayout *src_layout = new QHBoxLayout();
+    src_layout->addWidget(new QLabel("AI Listening Source:", parent));
+    audio_source_combo = new QComboBox(parent);
+    audio_source_combo->setMinimumWidth(150);
+    src_layout->addWidget(audio_source_combo);
+    ai_layout->addLayout(src_layout);
+    
+    auto_push_checkbox = new QCheckBox("Auto-Push High Confidence Matches", parent);
+    ai_layout->addWidget(auto_push_checkbox);
+    
+    layout->addWidget(ai_group);
+
+    // Initial Populate
+    PopulateAudioSources();
+
+    connect(audio_source_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
+        QString source_name = audio_source_combo->itemText(index);
+        obs_source_t* source = obs_get_source_by_name(source_name.toUtf8().constData());
+        if (source) {
+            // TRANSFER OWNERSHIP to the handler (no release here!)
+            GetAudioHandler()->SetCaptureSource(source);
+        } else {
+            GetAudioHandler()->SetCaptureSource(nullptr);
+        }
+    });
     fullscreen_checkbox = new QCheckBox("Full Screen Mode", parent);
     d_layout->addWidget(fullscreen_checkbox);
 
@@ -875,7 +903,12 @@ void HomeInDock::UpdateOverlayFromSelection() {
 }
 
 void HomeInDock::ToggleSettings() {
-    view_stack->setCurrentIndex(view_stack->currentIndex() == 0 ? 1 : 0);
+    if (view_stack->currentIndex() == 0) {
+        PopulateAudioSources(); // Refresh list before showing
+        view_stack->setCurrentIndex(1);
+    } else {
+        view_stack->setCurrentIndex(0);
+    }
 }
 
 void HomeInDock::UpdateAudioTest() {
@@ -913,8 +946,12 @@ void HomeInDock::OnToggleMic() {
         StopTranscription();
         mic_active = false;
         mic_paused = false;
+        mic_btn->setIcon(HomeInIcon("mic", 20));
+        mic_btn->setText("");
+        mic_btn->setStyleSheet(""); // Reset to default
         pause_btn->setIcon(HomeInIcon("pause", 20));
         pause_btn->setText("");
+        pause_btn->setEnabled(false);
     }
 }
 
@@ -1333,6 +1370,36 @@ void HomeInDock::SearchLyrics(const std::string& query) {
                                        Qt::QueuedConnection,
                                        Q_ARG(std::vector<SongLyric>, results));
         });
+}
+
+void HomeInDock::PopulateAudioSources() {
+    if (!audio_source_combo) return;
+    
+    // REMEMBER current selection
+    QString current_selection = audio_source_combo->currentText();
+    
+    audio_source_combo->clear();
+    audio_source_combo->addItem("--- Select Audio Source ---");
+
+    auto enum_proc = [](void* data, obs_source_t* source) {
+        QComboBox* combo = static_cast<QComboBox*>(data);
+        uint32_t flags = obs_source_get_output_flags(source);
+        if (flags & OBS_SOURCE_AUDIO) {
+            const char* name = obs_source_get_name(source);
+            if (name && strlen(name) > 0) {
+                combo->addItem(name);
+            }
+        }
+        return true;
+    };
+
+    obs_enum_sources(enum_proc, audio_source_combo);
+
+    // RESTORE selection
+    int index = audio_source_combo->findText(current_selection);
+    if (index != -1) {
+        audio_source_combo->setCurrentIndex(index);
+    }
 }
 
 void HomeInDock::OnLyricsSearchChanged(const QString& text) {
