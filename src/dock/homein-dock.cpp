@@ -909,6 +909,12 @@ void HomeInDock::ToggleSettings() {
     } else {
         view_stack->setCurrentIndex(0);
     }
+    if (view_stack->currentIndex() == 0) {
+        PopulateAudioSources(); // Refresh list before showing
+        view_stack->setCurrentIndex(1);
+    } else {
+        view_stack->setCurrentIndex(0);
+    }
 }
 
 void HomeInDock::UpdateAudioTest() {
