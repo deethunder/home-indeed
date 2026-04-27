@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include "homein-dock.hpp"
 #include <obs-module.h>
 #include <QScrollBar>
@@ -11,7 +12,7 @@
 #include <QPushButton>
 #include <QStyle>
 #include <QGroupBox>
-#include <QFrame>
+#include <QFrame> 
 #include <QTimer>
 #include <QScrollArea>
 #include <QFileDialog>
@@ -19,12 +20,16 @@
 #include <QInputDialog>
 #include <QPlainTextEdit>
 #include <QDialogButtonBox>
+#include <QProgressDialog>
+#include <QtConcurrent/QtConcurrent>
 #include "../renderer/homein-renderer.hpp"
 #include "../audio/homein-audio.hpp"
 #include "../database/homein-importer.hpp"
+#include "../network/homein-http.hpp"
 #include <QSvgRenderer>
 #include <QFile>
 #include <QPainter>
+#include <QDir>
 
 // Returns a QIcon from a bundled SVG, tinted to match Qt's text colour.
 static QIcon HomeInIcon(const QString& name, int size = 16) {
@@ -619,7 +624,6 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
 
     QGroupBox *ai_group = new QGroupBox("AI Voice Intelligence", parent);
     QVBoxLayout *ai_layout = new QVBoxLayout(ai_group);
-    
     QHBoxLayout *src_layout = new QHBoxLayout();
     src_layout->addWidget(new QLabel("AI Listening Source:", parent));
     audio_source_combo = new QComboBox(parent);
@@ -760,12 +764,12 @@ void HomeInDock::RefreshBibleView() {
         }
         
         // Restore selection and update overlay if live
-        ShowBibleVerseAtIndex(std::min(saved_idx, (int)current_chapter_verses.size() - 1));
+        ShowBibleVerseAtIndex((std::min)(saved_idx, (int)current_chapter_verses.size() - 1));
         
         // Auto-update live overlay if something is already showing
         HomeInRenderer* r = GetActiveRenderer();
         if (r) {
-            const BibleVerse& v = current_chapter_verses[std::max(0, current_bible_verse_index)];
+            const BibleVerse& v = current_chapter_verses[(std::max)(0, current_bible_verse_index)];
             QString ref = QString::fromStdString(v.book_name) + " " +
                           QString::number(v.chapter) + ":" +
                           QString::number(v.verse) + " (" + 
@@ -909,12 +913,6 @@ void HomeInDock::ToggleSettings() {
     } else {
         view_stack->setCurrentIndex(0);
     }
-    if (view_stack->currentIndex() == 0) {
-        PopulateAudioSources(); // Refresh list before showing
-        view_stack->setCurrentIndex(1);
-    } else {
-        view_stack->setCurrentIndex(0);
-    }
 }
 
 void HomeInDock::UpdateAudioTest() {
@@ -970,34 +968,85 @@ void HomeInDock::OnTogglePause() {
 }
 
 void HomeInDock::StartTranscription() {
-    const char* model_names[] = {
-        "models/ggml-small.en.bin",
-        "models/ggml-base.en.bin",
-        "models/ggml-tiny.en.bin"
-    };
-    char* model_path = nullptr;
+    std::string small_model = "models/ggml-small.en.bin";
+    std::string base_model  = "models/ggml-base.en.bin";
+    std::string tiny_model  = "models/ggml-tiny.en.bin";
 
-    for (const char* name : model_names) {
-        model_path = obs_module_file(name);
-        if (model_path) {
-            blog(LOG_INFO, "HomeIndeed: Using AI model: %s", name);
+    // Auto-search for whatever model the installer provided
+    std::vector<std::string> search_order = {small_model, base_model, tiny_model};
+
+    char* model_path = nullptr;
+    for (const auto& name : search_order) {
+        char* candidate = obs_module_file(name.c_str());
+        if (candidate) {
+            model_path = candidate;
             break;
         }
     }
 
-    if (model_path && stt_engine.Initialize(model_path)) {
-        stt_engine.Start([this](const std::string& text, bool /*is_partial*/) {
-            QMetaObject::invokeMethod(this, "AppendTranscript",
-                                      Qt::QueuedConnection,
-                                      Q_ARG(std::string, text));
-        });
-    } else {
-        QMessageBox::warning(this, "STT Error",
-            "Could not load any AI model.\n\n"
-            "Please place ggml-tiny.en.bin in the plugin models folder.\n"
-            "Download: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin");
+    if (!model_path) {
+        auto res = QMessageBox::question(this, "AI Model Missing",
+            "The high-accuracy AI voice model (ggml-small.en.bin) was not found.\n\n"
+            "Would you like Home Indeed to download it for you now for the best experience?\n"
+            "(Size: ~460MB. This only needs to be done once.)",
+            QMessageBox::Yes | QMessageBox::No);
+            
+        if (res == QMessageBox::Yes) {
+            char* data_dir = obs_module_file("models/");
+            if (data_dir) {
+                QString target_dir = QString::fromUtf8(data_dir);
+                QDir().mkpath(target_dir);
+                QString target_file = target_dir + "ggml-small.en.bin";
+                bfree(data_dir);
+
+                QProgressDialog progress("Downloading High-Accuracy AI Model...", "Cancel", 0, 100, this);
+                progress.setWindowModality(Qt::WindowModal);
+                progress.show();
+
+                bool download_success = false;
+                std::string url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin";
+                
+                // Run download in background
+                QFuture<bool> future = QtConcurrent::run([url, target_file, &progress]() {
+                    return HomeIn::HttpClient::DownloadFile(url, target_file.toStdString(), [&](float p) {
+                        QMetaObject::invokeMethod(&progress, "setValue", Qt::QueuedConnection, Q_ARG(int, (int)(p * 100)));
+                    });
+                });
+
+                while (!future.isFinished()) {
+                    QApplication::processEvents();
+                    if (progress.wasCanceled()) break;
+                    QThread::msleep(50);
+                }
+
+                if (future.result()) {
+                    QMessageBox::information(this, "Download Complete", "AI Model installed successfully! Starting transcription...");
+                    StartTranscription(); // Retry
+                    return;
+                } else {
+                    QMessageBox::critical(this, "Download Failed", "Could not download the AI model. Please check your internet connection.");
+                }
+            }
+        }
+        return;
     }
-    if (model_path) bfree(model_path);
+
+    if (!stt_engine.Initialize(model_path)) {
+        blog(LOG_ERROR, "HomeIndeed: Whisper init FAILED for: %s", model_path);
+        QMessageBox::critical(this, "STT Init Failed",
+            QString("Whisper failed to load:\n%1\n\nFile may be corrupt.")
+                .arg(model_path));
+        bfree(model_path);
+        return;
+    }
+
+    blog(LOG_INFO, "HomeIndeed: Model loaded OK, starting STT...");
+    stt_engine.Start([this](const std::string& text, bool /*is_partial*/) {
+        QMetaObject::invokeMethod(this, "AppendTranscript",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(std::string, text));
+    });
+    bfree(model_path);
 }
 
 void HomeInDock::StopTranscription() {
@@ -1384,6 +1433,7 @@ void HomeInDock::PopulateAudioSources() {
     // REMEMBER current selection
     QString current_selection = audio_source_combo->currentText();
     
+    audio_source_combo->blockSignals(true);
     audio_source_combo->clear();
     audio_source_combo->addItem("--- Select Audio Source ---");
 
@@ -1406,6 +1456,7 @@ void HomeInDock::PopulateAudioSources() {
     if (index != -1) {
         audio_source_combo->setCurrentIndex(index);
     }
+    audio_source_combo->blockSignals(false);
 }
 
 void HomeInDock::OnLyricsSearchChanged(const QString& text) {

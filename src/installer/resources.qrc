@@ -22,6 +22,7 @@
     <file alias="wifi.svg">assets/icons/wifi.svg</file>
     <file alias="wifi-off.svg">assets/icons/wifi-off.svg</file>
     <file alias="check.svg">assets/icons/check.svg</file>
+    <file alias="check-white.svg">assets/icons/check.svg</file>
     <file alias="x.svg">assets/icons/x.svg</file>
     <file alias="list-music.svg">assets/icons/list-music.svg</file>
     <file alias="book-open.svg">assets/icons/book-open.svg</file>

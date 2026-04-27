@@ -20,6 +20,8 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <objbase.h>
+#include <QtConcurrent/QtConcurrent>
+#include "../network/homein-http.hpp"
 
 #ifdef _MSC_VER
 #pragma comment(lib, "shell32.lib")
@@ -220,10 +222,59 @@ private:
             }
         }
         
-        // 3. Special check for Models
-        QDir modelsDir(dataPath + "/models");
-        if (modelsDir.entryList(QStringList() << "*.bin", QDir::Files).isEmpty()) {
-            statusLabel->setText("Models missing - plugin will require manual model download.");
+        // 3. Hardware-Aware AI Model Selection
+        SYSTEM_INFO sysInfo;
+        GetSystemInfo(&sysInfo);
+        int cores = sysInfo.dwNumberOfProcessors;
+        
+        // Detect NVIDIA GPU for "NVIDIA Boosted" Mode
+        bool hasNvidia = false;
+        QProcess checkGpu;
+        checkGpu.start("cmd", QStringList() << "/c" << "wmic path win32_VideoController get name");
+        if (checkGpu.waitForFinished(2000)) {
+            if (checkGpu.readAllStandardOutput().toUpper().contains("NVIDIA")) {
+                hasNvidia = true;
+            }
+        }
+        
+        QString modelName = "ggml-base.en.bin"; // Balanced Default
+        QString modelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
+        QString perfLevel = "Standard";
+
+        // NVIDIA GPU always gets the "Small" High-Accuracy model
+        if (hasNvidia || cores >= 8) {
+            modelName = "ggml-small.en.bin"; // High Performance
+            modelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin";
+            perfLevel = hasNvidia ? "NVIDIA Boosted" : "High-Accuracy";
+        } else if (cores < 4) {
+            modelName = "ggml-tiny.en.bin";  // Lite Performance
+            modelUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin";
+            perfLevel = "Ultra-Fast";
+        }
+
+        QString targetModel = modelPath + "/" + modelName;
+        if (!QFile::exists(targetModel)) {
+            statusLabel->setText(QString("Setting up AI Voice Engine (%1 mode)...").arg(perfLevel));
+            progressBar->setValue(85);
+            
+            std::string url = modelUrl.toStdString();
+            std::string target = targetModel.toStdString();
+            
+            // Background download with progress feedback
+            QFuture<bool> future = QtConcurrent::run([url, target, this]() {
+                return HomeIn::HttpClient::DownloadFile(url, target, [this](float p) {
+                    QMetaObject::invokeMethod(this, [this, p]() {
+                        // Map 0-100% download to 85-98% of overall progress
+                        int val = 85 + (int)(p * 13);
+                        progressBar->setValue(val);
+                    }, Qt::QueuedConnection);
+                });
+            });
+
+            while (!future.isFinished()) {
+                QApplication::processEvents();
+                QThread::msleep(50);
+            }
         }
 
         progressBar->setValue(100);

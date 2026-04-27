@@ -42,6 +42,11 @@ private:
     static constexpr uint32_t TARGET_SAMPLE_RATE = 16000;
 
     obs_source_t* current_latch_source = nullptr;
+    bool using_filter_path = false;
+
+    friend void* homein_audio_filter_create(struct obs_data*, struct obs_source*);
+    friend void homein_audio_filter_destroy(void*);
+    friend void on_source_audio_capture(void*, struct obs_source*, const struct audio_data*, bool);
 };
 
 // Global accessor or singleton for the active handler

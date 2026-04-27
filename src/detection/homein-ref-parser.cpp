@@ -37,7 +37,8 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
 
 HomeInRefParser::HomeInRefParser() {
     standard_ref_regex = std::regex(
-        R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)\s*(?:chapter\s+)?(\d+)\s*(?::|verse\s+)\s*(\d+)(?:\s*-\s*(\d+))?\b)",
+        // Matches: "Mark 5:1"  "Mark 5 1"  "Mark chapter 5 verse 1"  "Mark 5, 1"
+        R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)\s*(?:chapter\s+)?(\d+)\s*(?::|,|verse\s+|\s)\s*(\d+)(?:\s*-\s*(\d+))?\b)",
         std::regex_constants::icase
     );
 

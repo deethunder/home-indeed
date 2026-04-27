@@ -12,6 +12,7 @@ static void on_source_audio_capture(void* data, obs_source_t* source, const stru
     if (muted || !audio) return;
     
     HomeInAudioHandler* handler = static_cast<HomeInAudioHandler*>(data);
+    if (handler->using_filter_path) return; // filter path takes priority to avoid doubling
     
     // Map 'audio_data' to 'obs_audio_data' structure for ProcessAudio
     struct obs_audio_data obs_audio;
@@ -50,13 +51,15 @@ static void* homein_audio_filter_create(obs_data_t* settings, obs_source_t* cont
     UNUSED_PARAMETER(settings);
     UNUSED_PARAMETER(context);
     
-    // We only want one active tap for simplicity in v1.0
-    return GetAudioHandler();
+    HomeInAudioHandler* handler = GetAudioHandler();
+    handler->using_filter_path = true;
+    return handler;
 }
 
 static void homein_audio_filter_destroy(void* data) {
-    // Note: We keep the global handler alive or manage it carefully
-    if (data == g_audio_handler.get()) {
+    HomeInAudioHandler* handler = static_cast<HomeInAudioHandler*>(data);
+    if (handler) {
+        handler->using_filter_path = false;
     }
 }
 
