@@ -20,7 +20,11 @@
 #include <QLineEdit>
 #include <QTimer>
 #include <QGridLayout>
+#include "../stt/ISTTProvider.hpp"
+#include "../stt/homein-transcript-queue.hpp"
+#include "../detection/homein-context.hpp"
 #include "../stt/homein-stt.hpp"
+#include "../stt/homein-deepgram.hpp"
 #include "../database/homein-db.hpp"
 #include "../database/homein-lyrics-db.hpp"
 #include "../detection/homein-ref-parser.hpp"
@@ -135,6 +139,8 @@ private:
     QCheckBox  *auto_switch_tabs_checkbox;
     QCheckBox  *auto_search_checkbox;
     QCheckBox  *auto_push_checkbox;
+    QComboBox  *stt_mode_combo;
+    QLineEdit  *deepgram_key_edit;
     bool auto_switch_tabs = true;
     bool auto_search      = true;
     bool auto_push        = true;
@@ -147,7 +153,14 @@ private:
     int current_verse_index = -1;
     int lines_per_page = 2;
 
-    HomeInSTTEngine      stt_engine;
+    void DetectionLoop();
+
+    std::unique_ptr<ISTTProvider> stt_provider;
+    std::shared_ptr<TranscriptQueue> transcript_queue;
+    std::shared_ptr<SermonContext> sermon_context;
+    std::thread detection_thread;
+    std::atomic<bool> detection_running{false};
+
     HomeInRefParser      ref_parser;
     HomeInDB             bible_db;
     HomeInLyricsEngine   lyrics_engine;

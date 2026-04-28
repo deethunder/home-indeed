@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cctype>
 
-// FIX #14: _stricmp is Windows-only. Use a portable lowercase compare.
 static bool iequals(const std::string& a, const std::string& b) {
     if (a.size() != b.size()) return false;
     for (size_t i = 0; i < a.size(); ++i) {
@@ -37,12 +36,11 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
 
 HomeInRefParser::HomeInRefParser() {
     standard_ref_regex = std::regex(
-        // Matches: "Mark 5:1"  "Mark 5 1"  "Mark chapter 5 verse 1"  "Mark 5, 1"
         R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)\s*(?:chapter\s+)?(\d+)\s*(?::|,|verse\s+|\s)\s*(\d+)(?:\s*-\s*(\d+))?\b)",
         std::regex_constants::icase
     );
 
-    conversational_verse_regex = std::regex(
+    verse_only_regex = std::regex(
         R"(\b(?:verse|v|vs|vrt)\.?\s*(\d+)(?:\s*-\s*(\d+))?\b)",
         std::regex_constants::icase
     );
@@ -53,19 +51,17 @@ HomeInRefParser::~HomeInRefParser() {}
 std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
     std::vector<BibleRef> results;
 
-    // --- Strategy 1: Standard references (John 3:16) ---
+    // --- Layer 1: Standard references (Regex) ---
     auto it  = std::sregex_iterator(text.begin(), text.end(), standard_ref_regex);
-    auto end = std::sregex_iterator(); // universal end sentinel
+    auto end = std::sregex_iterator();
 
     for (; it != end; ++it) {
         std::smatch match = *it;
         std::string book_candidate = match[1].str();
-
-        // Trim trailing whitespace
-        book_candidate.erase(
-            std::find_if(book_candidate.rbegin(), book_candidate.rend(),
-                         [](unsigned char ch){ return !std::isspace(ch); }).base(),
-            book_candidate.end());
+        
+        // Trim
+        book_candidate.erase(std::find_if(book_candidate.rbegin(), book_candidate.rend(),
+            [](unsigned char ch){ return !std::isspace(ch); }).base(), book_candidate.end());
 
         std::string found_name;
         for (const auto& book : BIBLE_BOOKS) {
@@ -81,30 +77,28 @@ std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
         ref.verse_end     = match[4].matched ? std::stoi(match[4].str()) : ref.verse_start;
         ref.confidence    = 0.95f;
 
-        last_book    = ref.book;
-        last_chapter = ref.chapter;
+        // Update Context
+        if (context) context->Update(ref.book, ref.chapter);
 
         results.push_back(ref);
     }
 
-    // --- Strategy 2: Contextual "verse 16" style ---
-    // Only when no standard ref was found and we have a context book/chapter.
-    if (results.empty() && !last_book.empty()) {
-        // FIX #12: Use a fresh end iterator scoped to this regex.
-        // The old code reused words_end from the standard regex loop — fragile
-        // (both compare equal to a default-constructed iterator, but semantically wrong).
-        auto conv_it  = std::sregex_iterator(text.begin(), text.end(), conversational_verse_regex);
-        auto conv_end = std::sregex_iterator();
+    // --- Layer 2: Contextual References (Implied Book/Chapter) ---
+    std::string current_book;
+    int current_chapter;
+    if (results.empty() && context && context->GetCurrent(current_book, current_chapter)) {
+        auto v_it  = std::sregex_iterator(text.begin(), text.end(), verse_only_regex);
+        auto v_end = std::sregex_iterator();
 
-        for (; conv_it != conv_end; ++conv_it) {
-            std::smatch match = *conv_it;
+        for (; v_it != v_end; ++v_it) {
+            std::smatch match = *v_it;
             BibleRef ref;
             ref.original_text = match.str();
-            ref.book          = last_book;
-            ref.chapter       = last_chapter;
+            ref.book          = current_book;
+            ref.chapter       = current_chapter;
             ref.verse_start   = std::stoi(match[1].str());
             ref.verse_end     = match[2].matched ? std::stoi(match[2].str()) : ref.verse_start;
-            ref.confidence    = 0.85f;
+            ref.confidence    = 0.80f;
             results.push_back(ref);
         }
     }

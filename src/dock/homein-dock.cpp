@@ -30,6 +30,7 @@
 #include <QFile>
 #include <QPainter>
 #include <QDir>
+#include <QSettings>
 
 // Returns a QIcon from a bundled SVG, tinted to match Qt's text colour.
 static QIcon HomeInIcon(const QString& name, int size = 16) {
@@ -80,7 +81,25 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     }
 
     SetupUI();
+
+    // AI ASYNC PIPELINE SETUP
+    transcript_queue = std::make_shared<TranscriptQueue>();
+    sermon_context   = std::make_shared<SermonContext>();
+    ref_parser.SetContext(sermon_context);
+
+    detection_running = true;
+    detection_thread = std::thread(&HomeInDock::DetectionLoop, this);
+
     PopulateTranslations();
+
+    // LOAD PERSISTED STT SETTINGS (Configured during installation)
+    QSettings settings("HomeIndeed", "Plugin");
+    QString stt_mode = settings.value("stt_mode", "whisper").toString();
+    QString dg_key   = settings.value("deepgram_key", "").toString();
+
+    int mode_idx = stt_mode_combo->findData(stt_mode);
+    if (mode_idx >= 0) stt_mode_combo->setCurrentIndex(mode_idx);
+    deepgram_key_edit->setText(dg_key);
 
     // Audio level meter at 10 fps
     level_timer = new QTimer(this);
@@ -108,7 +127,11 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
 }
 
 HomeInDock::~HomeInDock() {
-    stt_engine.Stop();
+    detection_running = false;
+    if (detection_thread.joinable()) {
+        detection_thread.join();
+    }
+    if (stt_provider) stt_provider->Stop();
 }
 
 void HomeInDock::SetupUI() {
@@ -583,6 +606,23 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     header->setStyleSheet("font-size: 18px; font-weight: bold; color: #0078d7;");
     layout->addWidget(header);
 
+    QGroupBox *stt_group = new QGroupBox("Speech Engine", parent);
+    QGridLayout *stt_layout = new QGridLayout(stt_group);
+    
+    stt_layout->addWidget(new QLabel("Provider:", parent), 0, 0);
+    stt_mode_combo = new QComboBox(parent);
+    stt_mode_combo->addItem("Local (Whisper - Offline)", "whisper");
+    stt_mode_combo->addItem("Cloud (Deepgram - Faster)", "deepgram");
+    stt_layout->addWidget(stt_mode_combo, 0, 1);
+
+    stt_layout->addWidget(new QLabel("Deepgram Key:", parent), 1, 0);
+    deepgram_key_edit = new QLineEdit(parent);
+    deepgram_key_edit->setEchoMode(QLineEdit::Password);
+    deepgram_key_edit->setPlaceholderText("Enter your Deepgram API Key");
+    stt_layout->addWidget(deepgram_key_edit, 1, 1);
+
+    layout->addWidget(stt_group);
+
     QGroupBox *disp_group = new QGroupBox("Overlay Display", parent);
     QVBoxLayout *d_layout = new QVBoxLayout(disp_group);
 
@@ -961,97 +1001,57 @@ void HomeInDock::OnToggleMic() {
 
 void HomeInDock::OnTogglePause() {
     mic_paused = !mic_paused;
-    stt_engine.SetPaused(mic_paused);
+    if (stt_provider) stt_provider->SetPaused(mic_paused);
     pause_btn->setIcon(HomeInIcon(mic_paused ? "play" : "pause", 20));
     pause_btn->setText("");
     pause_btn->setStyleSheet(mic_paused ? "color: #ffaa00; font-weight: bold;" : "");
 }
 
 void HomeInDock::StartTranscription() {
-    std::string small_model = "models/ggml-small.en.bin";
-    std::string base_model  = "models/ggml-base.en.bin";
-    std::string tiny_model  = "models/ggml-tiny.en.bin";
+    QSettings settings("HomeIndeed", "Plugin");
+    std::string mode = settings.value("stt_mode", "whisper").toString().toStdString();
+    std::string key  = settings.value("deepgram_key", "").toString().toStdString();
 
-    // Auto-search for whatever model the installer provided
-    std::vector<std::string> search_order = {small_model, base_model, tiny_model};
-
-    char* model_path = nullptr;
-    for (const auto& name : search_order) {
-        char* candidate = obs_module_file(name.c_str());
-        if (candidate) {
-            model_path = candidate;
-            break;
+    if (mode == "deepgram") {
+        if (key.empty()) {
+            QMessageBox::warning(this, "Deepgram Error", "Please enter a Deepgram API Key in Settings.");
+            return;
         }
-    }
-
-    if (!model_path) {
-        auto res = QMessageBox::question(this, "AI Model Missing",
-            "The high-accuracy AI voice model (ggml-small.en.bin) was not found.\n\n"
-            "Would you like Home Indeed to download it for you now for the best experience?\n"
-            "(Size: ~460MB. This only needs to be done once.)",
-            QMessageBox::Yes | QMessageBox::No);
-            
-        if (res == QMessageBox::Yes) {
-            char* data_dir = obs_module_file("models/");
-            if (data_dir) {
-                QString target_dir = QString::fromUtf8(data_dir);
-                QDir().mkpath(target_dir);
-                QString target_file = target_dir + "ggml-small.en.bin";
-                bfree(data_dir);
-
-                QProgressDialog progress("Downloading High-Accuracy AI Model...", "Cancel", 0, 100, this);
-                progress.setWindowModality(Qt::WindowModal);
-                progress.show();
-
-                bool download_success = false;
-                std::string url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin";
-                
-                // Run download in background
-                QFuture<bool> future = QtConcurrent::run([url, target_file, &progress]() {
-                    return HomeIn::HttpClient::DownloadFile(url, target_file.toStdString(), [&](float p) {
-                        QMetaObject::invokeMethod(&progress, "setValue", Qt::QueuedConnection, Q_ARG(int, (int)(p * 100)));
-                    });
-                });
-
-                while (!future.isFinished()) {
-                    QApplication::processEvents();
-                    if (progress.wasCanceled()) break;
-                    QThread::msleep(50);
-                }
-
-                if (future.result()) {
-                    QMessageBox::information(this, "Download Complete", "AI Model installed successfully! Starting transcription...");
-                    StartTranscription(); // Retry
-                    return;
-                } else {
-                    QMessageBox::critical(this, "Download Failed", "Could not download the AI model. Please check your internet connection.");
-                }
+        stt_provider = std::make_unique<DeepgramSTTProvider>();
+        stt_provider->Initialize(key);
+    } else {
+        stt_provider = std::make_unique<HomeInSTTEngine>();
+        
+        char* model_path = obs_module_file("models/ggml-tiny.en.bin");
+        if (!model_path) model_path = obs_module_file("models/ggml-base.en.bin");
+        
+        if (model_path) {
+            if (!stt_provider->Initialize(model_path)) {
+                QMessageBox::critical(this, "Whisper Error", "Failed to load model.");
+                bfree(model_path);
+                return;
             }
+            bfree(model_path);
+        } else {
+            QMessageBox::critical(this, "Model Missing", "No Whisper models found.");
+            return;
         }
-        return;
     }
 
-    if (!stt_engine.Initialize(model_path)) {
-        blog(LOG_ERROR, "HomeIndeed: Whisper init FAILED for: %s", model_path);
-        QMessageBox::critical(this, "STT Init Failed",
-            QString("Whisper failed to load:\n%1\n\nFile may be corrupt.")
-                .arg(model_path));
-        bfree(model_path);
-        return;
-    }
-
-    blog(LOG_INFO, "HomeIndeed: Model loaded OK, starting STT...");
-    stt_engine.Start([this](const std::string& text, bool /*is_partial*/) {
-        QMetaObject::invokeMethod(this, "AppendTranscript",
-                                  Qt::QueuedConnection,
-                                  Q_ARG(std::string, text));
+    stt_provider->Start([this](const std::string& text, bool is_partial) {
+        if (!is_partial && !text.empty()) {
+            transcript_queue->Push(text);
+        }
     });
-    bfree(model_path);
+
+    blog(LOG_INFO, "HomeIndeed: %s STT Started", stt_provider->GetName().c_str());
 }
 
 void HomeInDock::StopTranscription() {
-    stt_engine.Stop();
-    transcript_view->append("\n--- Listening Session Stopped ---");
+    if (stt_provider) {
+        stt_provider->Stop();
+        stt_provider.reset();
+    }
 }
 
 void HomeInDock::OnImportEasyWorship() {
@@ -1140,6 +1140,11 @@ void HomeInDock::ApplySettings() {
     
     HomeInRenderer* r = GetActiveRenderer();
     if (r) r->UpdateSettings(s);
+
+    // Save STT settings
+    QSettings settings("HomeIndeed", "Plugin");
+    settings.setValue("stt_mode", stt_mode_combo->currentData().toString());
+    settings.setValue("deepgram_key", deepgram_key_edit->text());
 }
 
 void HomeInDock::OnBibleSearchRequested() {
@@ -1256,8 +1261,9 @@ void HomeInDock::AppendTranscript(const std::string& text) {
     if (last_word_field)
         last_word_field->setText(QString::fromStdString(text));
 
-    CheckForReferences(text);
-    CheckForLyrics(text);
+    // PHASE 1: Actions disabled to focus on transcription accuracy first.
+    // CheckForReferences(text);
+    // CheckForLyrics(text);
 }
 
 void HomeInDock::SetFocusMode(FocusMode mode) {
@@ -1602,7 +1608,44 @@ void HomeInDock::OnManualEntry() {
             QMessageBox::information(this, "Success", "Song added to your local library.");
             OnLyricsSearchChanged(""); // Refresh list
         } else {
-            QMessageBox::critical(this, "Database Error", "Failed to save song to database.");
+            QMetaObject::invokeMethod(this, [this]() {
+                QMessageBox::critical(this, "Database Error", "Failed to save song to database.");
+            }, Qt::QueuedConnection);
+        }
+    }
+}
+
+void HomeInDock::DetectionLoop() {
+    while (detection_running) {
+        std::string transcript;
+        if (transcript_queue->Pop(transcript)) {
+            // Update UI with the raw transcript first
+            QMetaObject::invokeMethod(this, "AppendTranscript", Qt::QueuedConnection, Q_ARG(std::string, transcript));
+
+            // LAYER 1 & 2: Regex and Contextual Detection
+            std::vector<BibleRef> refs = ref_parser.Parse(transcript);
+            
+            bool found_any = false;
+            for (const auto& ref : refs) {
+                BibleVerse v;
+                if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start, CurrentTranslation(), v)) {
+                    QMetaObject::invokeMethod(this, "ShowBibleSuggestion", Qt::QueuedConnection,
+                        Q_ARG(std::string, v.book_name), Q_ARG(int, v.chapter), Q_ARG(int, v.verse), Q_ARG(std::string, v.text));
+                    found_any = true;
+                }
+            }
+
+            // LAYER 3: Fuzzy Quote Search (Only if nothing found and text is substantial)
+            if (!found_any && transcript.length() > 20) {
+                std::vector<BibleVerse> fuzzy = bible_db.FuzzySearch(transcript, 1);
+                if (!fuzzy.empty()) {
+                    QMetaObject::invokeMethod(this, "ShowBibleSuggestion", Qt::QueuedConnection,
+                        Q_ARG(std::string, fuzzy[0].book_name), Q_ARG(int, fuzzy[0].chapter), Q_ARG(int, fuzzy[0].verse), Q_ARG(std::string, fuzzy[0].text));
+                }
+            }
+            
+            // Check for lyrics in parallel
+            CheckForLyrics(transcript);
         }
     }
 }

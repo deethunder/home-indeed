@@ -52,6 +52,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   src/updater/homein-updater.cpp
   src/renderer/homein-renderer.cpp
   src/network/homein-http.cpp
+  src/stt/homein-deepgram.cpp
   vendor/sqlite3/sqlite3.c
   src/installer/resources.qrc
 )
@@ -61,7 +62,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
   vendor/whisper.cpp/include
   vendor/sqlite3
 )
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper winhttp)
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE 
   SQLITE_ENABLE_FTS5=1

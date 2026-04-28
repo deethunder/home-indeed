@@ -3,6 +3,7 @@
 #include <mutex>
 #include <vector>
 #include <atomic>
+#include <condition_variable>
 
 struct obs_source;
 typedef struct obs_source obs_source_t;
@@ -21,6 +22,9 @@ public:
     void GetSamples(std::vector<float>& out_samples, bool clear = true);
     size_t GetBufferedCount() const;
     
+    std::condition_variable& GetNotify() const { return audio_cv; }
+    std::mutex& GetNotifyMutex() const { return audio_mtx; }
+    
     /**
      * @brief Returns the last recorded Peak audio level (0.0 to 1.0).
      */
@@ -38,8 +42,15 @@ private:
     std::unique_ptr<HomeInResampler> resampler;
     uint32_t last_sample_rate = 0;
     std::atomic<float> current_level{0.0f};
+    std::atomic<bool> gate_open{true};
+    uint32_t silent_frames = 0;
+
+    mutable std::condition_variable audio_cv;
+    mutable std::mutex audio_mtx;
 
     static constexpr uint32_t TARGET_SAMPLE_RATE = 16000;
+    static constexpr float VAD_THRESHOLD = 0.002f;
+    static constexpr uint32_t VAD_SILENCE_LIMIT = 50; // ~1 second of silence before gating
 
     obs_source_t* current_latch_source = nullptr;
     bool using_filter_path = false;

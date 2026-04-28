@@ -161,7 +161,25 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
     }
 
     // 2. High-Quality Resample
-    resampler->Process(mono_input, pcm_buffer);
+    if (max_peak > VAD_THRESHOLD) {
+        silent_frames = 0;
+        gate_open = true;
+    } else {
+        silent_frames++;
+        if (silent_frames > VAD_SILENCE_LIMIT) {
+            gate_open = false;
+        }
+    }
+
+    if (gate_open) {
+        resampler->Process(mono_input, pcm_buffer);
+        
+        // Notify STT engine that new data is ready
+        {
+            std::lock_guard<std::mutex> lock_notify(audio_mtx);
+            audio_cv.notify_one();
+        }
+    }
 
     // 3. Buffer Management
     // Cap buffer at 30 seconds to prevent memory leaks if STT hangs
