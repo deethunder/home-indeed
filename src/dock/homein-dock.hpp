@@ -83,6 +83,8 @@ private:
     void OnBookSelected();
     void ApplySettings();
     void RefreshBibleView();
+    void SaveQueue();
+    void LoadQueue();
 
     // FIX #1: Helper that always returns the clean abbreviation (e.g. "KJV")
     // from item data rather than the display text.

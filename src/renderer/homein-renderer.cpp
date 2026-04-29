@@ -3,6 +3,7 @@
 #include <graphics/graphics.h>
 #include <mutex>
 #include <atomic>
+#include <QRegularExpression>
 
 // FIX #16: Use atomic pointer to eliminate data race between OBS source
 // management thread (create/destroy) and the Qt dock thread (GetActiveRenderer).
@@ -146,12 +147,16 @@ void HomeInRenderer::PrepareTexture() {
             }
         }
 
+        // DEEP CLEAN: Remove any embedded superscript markers from the DB text itself
+        static QRegularExpression superMarkers("[\\x{2070}-\\x{2079}\\x{00B9}\\x{00B2}\\x{00B3}]");
+        bodyStr.remove(superMarkers);
+
         int a8 = (int)(alpha * 255.0f);
 
-        auto drawWithOutline = [&](const QRect& r, const QString& text, QFont& f, int extra_flags = 0) {
-            int flags = draw_settings.alignment | Qt::AlignVCenter | Qt::TextWordWrap | extra_flags;
+        auto drawWithOutline = [&](const QRect& r, const QString& text, QFont& f, int alignment_override = -1) {
+            int flags = (alignment_override != -1 ? alignment_override : (int)draw_settings.alignment) | Qt::AlignVCenter | Qt::TextWordWrap;
             
-            // DYNAMIC AUTO-SCALING: Shrink font until it fits the rectangle
+            // DYNAMIC AUTO-SCALING
             int minSize = 12;
             while (f.pointSize() > minSize) {
                 QFontMetrics fm(f);
@@ -169,20 +174,18 @@ void HomeInRenderer::PrepareTexture() {
             painter.drawText(r, flags, text);
         };
 
-        // Layout
+        // Layout Constants
         int margin = 80;
-        int area_h = (int)(height * 0.40f); // Slightly larger area for lyrics
+        int area_h = (int)(height * 0.40f); 
         QRect contentRect(margin, (int)height - area_h - 40, (int)width - margin * 2, area_h);
         
         if (isLyrics) {
-            // Lyrics Mode: Draw everything as one big bold block
             int calculatedSize = (int)(draw_settings.base_font_size * 1.3f);
             QFont lyricFont(draw_settings.font_family, calculatedSize);
             lyricFont.setBold(true);
-            lyricFont.setWeight(QFont::Bold);
             drawWithOutline(contentRect, bodyStr, lyricFont);
         } else {
-            // Bible Mode: Original reference/superscript layout
+            // Bible Mode: FIXED-LEFT Layout
             QRect bodyRect = contentRect;
             bodyRect.setHeight((int)(contentRect.height() * 0.85f));
             
@@ -195,13 +198,20 @@ void HomeInRenderer::PrepareTexture() {
 
             if (!bodyStr.isEmpty()) {
                 if (!verseNum.isEmpty()) {
-                    QFont superFont(draw_settings.font_family, (int)(calculatedBodySize * 0.8f));
+                    // 1. Draw Verse Number FIXED TO LEFT
+                    QFont superFont(draw_settings.font_family, (int)(calculatedBodySize * 0.7f));
                     superFont.setBold(true);
-                    QFontMetrics fm(superFont);
-                    int superW = fm.horizontalAdvance(verseNum) + 60;
-                    // Move the verse number ABOVE the text line
-                    drawWithOutline(bodyRect.translated(-superW/2, -(int)(calculatedBodySize * 0.7f)), verseNum, superFont);
-                    drawWithOutline(bodyRect.translated(superW/2, 0), bodyStr, bodyFont);
+                    
+                    // Extreme Left Margin & High Elevation
+                    QRect superRect = bodyRect;
+                    superRect.setWidth(150); 
+                    // Move it 80px left and 70% of font size up
+                    superRect.translate(-80, -(int)(calculatedBodySize * 0.7f));
+                    
+                    drawWithOutline(superRect, verseNum, superFont, Qt::AlignLeft | Qt::AlignTop);
+                    
+                    // 2. Draw Main Body using the user's selected alignment (Center, Left, Right)
+                    drawWithOutline(bodyRect, bodyStr, bodyFont);
                 } else {
                     drawWithOutline(bodyRect, bodyStr, bodyFont);
                 }

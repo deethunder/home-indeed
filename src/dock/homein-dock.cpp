@@ -124,6 +124,8 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     QTimer::singleShot(3000, this, [this]() {
         updater.CheckForUpdates("DeeThunder/Home-Indeed");
     });
+
+    LoadQueue();
 }
 
 HomeInDock::~HomeInDock() {
@@ -496,6 +498,7 @@ void HomeInDock::SetupUI() {
     connect(push_queue_btn, &QPushButton::clicked, this, &HomeInDock::UpdateOverlayFromSelection);
     connect(clear_queue_btn, &QPushButton::clicked, [this]() {
         queue_list->clear();
+        SaveQueue();
     });
     connect(up_queue_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueUp);
     connect(down_queue_btn, &QPushButton::clicked, this, &HomeInDock::MoveQueueDown);
@@ -878,11 +881,13 @@ void HomeInDock::AddToQueue() {
             item->setData(Qt::UserRole + 2, isLyrics);
         }
         tabs_widget->setCurrentIndex(3);
+        SaveQueue();
     }
 }
 
 void HomeInDock::RemoveFromQueue() {
-    delete queue_list->currentItem();
+    delete queue_list->takeItem(queue_list->currentRow());
+    SaveQueue();
 }
 
 void HomeInDock::MoveQueueUp() {
@@ -891,6 +896,7 @@ void HomeInDock::MoveQueueUp() {
         QListWidgetItem *item = queue_list->takeItem(row);
         queue_list->insertItem(row - 1, item);
         queue_list->setCurrentRow(row - 1);
+        SaveQueue();
     }
 }
 
@@ -900,6 +906,7 @@ void HomeInDock::MoveQueueDown() {
         QListWidgetItem *item = queue_list->takeItem(row);
         queue_list->insertItem(row + 1, item);
         queue_list->setCurrentRow(row + 1);
+        SaveQueue();
     }
 }
 
@@ -1646,6 +1653,40 @@ void HomeInDock::DetectionLoop() {
             
             // Check for lyrics in parallel
             CheckForLyrics(transcript);
+        }
+    }
+}
+void HomeInDock::SaveQueue() {
+    QSettings settings("HomeIndeed", "Plugin");
+    QVariantList saved_items;
+    
+    for (int i = 0; i < queue_list->count(); ++i) {
+        QListWidgetItem* item = queue_list->item(i);
+        QVariantMap data;
+        data["text"] = item->text();
+        data["isLyrics"] = item->data(Qt::UserRole + 2);
+        data["payload"] = item->data(Qt::UserRole);
+        saved_items << data;
+    }
+    settings.setValue("persistent_queue", saved_items);
+}
+
+void HomeInDock::LoadQueue() {
+    QSettings settings("HomeIndeed", "Plugin");
+    QVariantList saved_items = settings.value("persistent_queue").toList();
+    
+    queue_list->clear();
+    for (const QVariant& v : saved_items) {
+        QVariantMap data = v.toMap();
+        QListWidgetItem* item = new QListWidgetItem(data["text"].toString(), queue_list);
+        item->setData(Qt::UserRole + 2, data["isLyrics"]);
+        item->setData(Qt::UserRole, data["payload"]);
+        
+        // Restore icons
+        if (data["isLyrics"].toBool()) {
+            item->setIcon(HomeInIcon("music", 16));
+        } else {
+            item->setIcon(HomeInIcon("book", 16));
         }
     }
 }
