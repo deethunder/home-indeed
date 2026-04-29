@@ -1,5 +1,6 @@
 #pragma once
 #include "ISTTProvider.hpp"
+#define NOMINMAX
 #include <windows.h>
 #include <winhttp.h>
 #include <string>
@@ -10,7 +11,7 @@
 
 /**
  * @class DeepgramSTTProvider
- * @brief Cloud-based STT using Deepgram WebSocket API.
+ * @brief Cloud-based STT using Deepgram WebSocket API (WinHTTP).
  */
 class DeepgramSTTProvider : public ISTTProvider {
 public:

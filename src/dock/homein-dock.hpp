@@ -156,6 +156,7 @@ private:
     int lines_per_page = 2;
 
     void DetectionLoop();
+    void RunDetection(const std::string& text);
 
     std::unique_ptr<ISTTProvider> stt_provider;
     std::shared_ptr<TranscriptQueue> transcript_queue;

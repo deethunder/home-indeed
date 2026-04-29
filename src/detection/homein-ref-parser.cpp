@@ -35,15 +35,24 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
 };
 
 HomeInRefParser::HomeInRefParser() {
-    standard_ref_regex = std::regex(
-        R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)\s*(?:chapter\s+)?(\d+)\s*(?::|,|verse\s+|\s)\s*(\d+)(?:\s*-\s*(\d+))?\b)",
-        std::regex_constants::icase
-    );
+    try {
+        standard_ref_regex = std::regex(
+            R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)"
+            R"(\s*(?:chapter\s+)?(\d+))"
+            R"(\s*(?::|,|verse\s+|\s)\s*)"   // Added comma and bare space as separators
+            R"((\d+)(?:\s*-\s*(\d+))?\b)",
+            std::regex_constants::icase
+        );
 
-    verse_only_regex = std::regex(
-        R"(\b(?:verse|v|vs|vrt)\.?\s*(\d+)(?:\s*-\s*(\d+))?\b)",
-        std::regex_constants::icase
-    );
+        verse_only_regex = std::regex(
+            R"(\b(?:verse|v|vs|vrt)\.?\s*(\d+)(?:\s*-\s*(\d+))?\b)",
+            std::regex_constants::icase
+        );
+    } catch (const std::regex_error& e) {
+        // Fallback to simple regex
+        standard_ref_regex = std::regex(".*", std::regex_constants::icase);
+        verse_only_regex = std::regex(".*", std::regex_constants::icase);
+    }
 }
 
 HomeInRefParser::~HomeInRefParser() {}

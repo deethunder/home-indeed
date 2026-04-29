@@ -1640,38 +1640,78 @@ void HomeInDock::OnManualEntry() {
 }
 
 void HomeInDock::DetectionLoop() {
+    std::string sentence_buffer;
+    auto last_push_time = std::chrono::steady_clock::now();
+    static constexpr int kFlushWords    = 8;     // flush after 8+ words
+    static constexpr int kFlushIdleMs   = 1500;  // flush after 1.5s of silence
+
     while (detection_running) {
-        std::string transcript;
-        if (transcript_queue->Pop(transcript)) {
-            // Update UI with the raw transcript first
-            QMetaObject::invokeMethod(this, "AppendTranscript", Qt::QueuedConnection, Q_ARG(std::string, transcript));
-
-            // LAYER 1 & 2: Regex and Contextual Detection
-            std::vector<BibleRef> refs = ref_parser.Parse(transcript);
-            
-            bool found_any = false;
-            for (const auto& ref : refs) {
-                BibleVerse v;
-                if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start, CurrentTranslation(), v)) {
-                    QMetaObject::invokeMethod(this, "ShowBibleSuggestion", Qt::QueuedConnection,
-                        Q_ARG(std::string, v.book_name), Q_ARG(int, v.chapter), Q_ARG(int, v.verse), Q_ARG(std::string, v.text));
-                    found_any = true;
-                }
+        std::string chunk;
+        if (!transcript_queue->Pop(chunk, 150)) {
+            // Flush buffer on idle if it has content
+            auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - last_push_time).count();
+            if (idle_ms > kFlushIdleMs && !sentence_buffer.empty()) {
+                RunDetection(sentence_buffer);
+                sentence_buffer.clear();
             }
+            continue;
+        }
 
-            // LAYER 3: Fuzzy Quote Search (Only if nothing found and text is substantial)
-            if (!found_any && transcript.length() > 20) {
-                std::vector<BibleVerse> fuzzy = bible_db.FuzzySearch(transcript, 1);
-                if (!fuzzy.empty()) {
-                    QMetaObject::invokeMethod(this, "ShowBibleSuggestion", Qt::QueuedConnection,
-                        Q_ARG(std::string, fuzzy[0].book_name), Q_ARG(int, fuzzy[0].chapter), Q_ARG(int, fuzzy[0].verse), Q_ARG(std::string, fuzzy[0].text));
-                }
-            }
-            
-            // Check for lyrics in parallel
-            CheckForLyrics(transcript);
+        // Update the transcript UI
+        QMetaObject::invokeMethod(this, "AppendTranscript",
+            Qt::QueuedConnection, Q_ARG(std::string, chunk));
+
+        sentence_buffer += " " + chunk;
+        last_push_time = std::chrono::steady_clock::now();
+
+        // Flush on sentence boundary (punctuation) or word count threshold
+        bool has_punct = !chunk.empty() &&
+            (chunk.back()=='.' || chunk.back()=='!' || chunk.back()=='?');
+        int words = (int)std::count(sentence_buffer.begin(),
+                                     sentence_buffer.end(), ' ');
+        if (has_punct || words >= kFlushWords) {
+            RunDetection(sentence_buffer);
+            sentence_buffer.clear();
         }
     }
+}
+
+void HomeInDock::RunDetection(const std::string& text) {
+    if (text.empty()) return;
+
+    // Layer 1 & 2: Direct reference regex
+    std::vector<BibleRef> refs = ref_parser.Parse(text);
+    bool found = false;
+    for (const auto& ref : refs) {
+        BibleVerse v;
+        if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start,
+                               CurrentTranslation(), v)) {
+            QMetaObject::invokeMethod(this, "ShowBibleSuggestion",
+                Qt::QueuedConnection,
+                Q_ARG(std::string, v.book_name),
+                Q_ARG(int, v.chapter),
+                Q_ARG(int, v.verse),
+                Q_ARG(std::string, v.text));
+            found = true;
+        }
+    }
+
+    // Layer 3: Fuzzy search if no direct match and text is substantial
+    if (!found && text.length() > 20) {
+        std::vector<BibleVerse> fuzzy = bible_db.SearchVerses(text, 1);
+        if (!fuzzy.empty()) {
+            QMetaObject::invokeMethod(this, "ShowBibleSuggestion",
+                Qt::QueuedConnection,
+                Q_ARG(std::string, fuzzy[0].book_name),
+                Q_ARG(int, fuzzy[0].chapter),
+                Q_ARG(int, fuzzy[0].verse),
+                Q_ARG(std::string, fuzzy[0].text));
+        }
+    }
+
+    // Check lyrics
+    CheckForLyrics(text);
 }
 void HomeInDock::SaveQueue() {
     QSettings settings("HomeIndeed", "Plugin");

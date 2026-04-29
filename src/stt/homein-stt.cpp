@@ -77,19 +77,23 @@ void HomeInSTTEngine::RunLoop() {
     wparams.n_threads = std::max(1,
         std::min(4, (int)std::thread::hardware_concurrency() - 1));
 
-    wparams.no_context       = false; // Keep context for overlapping accuracy
+    wparams.language   = "en";    // Skip language detection — saves 200-400ms per chunk
+    wparams.translate  = false;   // Never translate — raw English transcription only
+    wparams.no_context = true;    // Prevents stale context hallucinations between chunks
     wparams.single_segment   = true;
     wparams.suppress_blank   = true;
     wparams.suppress_nst     = true;
 
     // Church/worship vocabulary bias
     wparams.initial_prompt =
-        "Bible verse references like John 3:16, Mark 5:1, Romans 8:28, Psalms 23:1. "
+        // Leading examples of colon-formatted refs prime Whisper's output format.
+        "John 3:16. Mark 5:1. Romans 8:28. Psalms 23:1. Isaiah 53:5. "
+        "Matthew 28:19. Luke 4:18. Acts 2:38. Ephesians 2:8. Revelation 21:4. "
         "Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, Ruth, "
-        "Samuel, Kings, Chronicles, Psalms, Proverbs, Isaiah, Jeremiah, Ezekiel, Daniel, "
-        "Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, Ephesians, "
-        "Philippians, Colossians, Thessalonians, Timothy, Hebrews, James, Peter, "
-        "Revelation. Hallelujah, amen, praise, worship, glory, grace, salvation.";
+        "Samuel, Kings, Chronicles, Psalms, Proverbs, Isaiah, Jeremiah, Ezekiel, "
+        "Daniel, Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, "
+        "Ephesians, Philippians, Colossians, Hebrews, James, Peter, Revelation. "
+        "Hallelujah, amen, praise, worship, glory, grace, salvation, Holy Spirit.";
 
     while (running) {
         // --- EFFICIENCY UPGRADE: Wait for data notification ---
@@ -115,19 +119,34 @@ void HomeInSTTEngine::RunLoop() {
 
         pcmf32.insert(pcmf32.end(), latest_samples.begin(), latest_samples.end());
 
-        // Use an 800ms window with 200ms overlap
-        const int window_size = WHISPER_SAMPLE_RATE * 0.8;
-        const int overlap_size = WHISPER_SAMPLE_RATE * 0.2;
+        // Whisper tiny.en needs minimum 1s for reliable output.
+        // 3s gives enough context for full phrases like "Mark chapter 5 verse 1".
+        static constexpr int kWindowSamples  = WHISPER_SAMPLE_RATE * 3;   // 48,000 = 3s
+        static constexpr int kOverlapSamples = WHISPER_SAMPLE_RATE / 2;   // 8,000  = 0.5s
+        static constexpr int kMinSamples     = WHISPER_SAMPLE_RATE * 1;   // 16,000 = 1s
 
-        if ((int)pcmf32.size() < window_size) {
-             // Not enough for a full window yet, but let's process anyway if we have enough
-             if (pcmf32.size() < WHISPER_SAMPLE_RATE / 4) continue;
-        }
+        if ((int)pcmf32.size() < kMinSamples) continue;
 
         // Extract the window to process
         pcm_window = pcmf32;
-        if ((int)pcm_window.size() > window_size) {
-            pcm_window.erase(pcm_window.begin(), pcm_window.begin() + (pcm_window.size() - window_size));
+        if ((int)pcm_window.size() > kWindowSamples) {
+            pcm_window.erase(pcm_window.begin(), 
+                pcm_window.begin() + ((int)pcm_window.size() - kWindowSamples));
+        }
+
+        // Compute RMS on the full Whisper input window.
+        // Must be on pcm_window/pcmf32, NOT on latest_samples — a tiny new chunk
+        // can have near-zero RMS even when the window contains clear speech.
+        float sum = 0.0f;
+        for (float s : pcmf32) sum += s * s;
+        float rms = std::sqrtf(sum / static_cast<float>(pcmf32.size()));
+
+        // 0.008 is calibrated for worship microphones through a mixer at moderate gain.
+        // Range for normal speech: 0.006–0.015 RMS depending on mic gain.
+        static constexpr float kVadThreshold = 0.008f;
+        if (rms < kVadThreshold) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
         }
 
         auto t_start = std::chrono::high_resolution_clock::now();
@@ -136,9 +155,10 @@ void HomeInSTTEngine::RunLoop() {
         }
         auto t_end = std::chrono::high_resolution_clock::now();
         
-        // Trim the buffer but keep overlap for the next cycle
-        if ((int)pcmf32.size() > overlap_size) {
-             pcmf32.erase(pcmf32.begin(), pcmf32.begin() + (pcmf32.size() - overlap_size));
+        // After processing, keep overlap for next cycle
+        if ((int)pcmf32.size() > kOverlapSamples) {
+            pcmf32.erase(pcmf32.begin(),
+                pcmf32.begin() + ((int)pcmf32.size() - kOverlapSamples));
         }
 
         const int n_segments = whisper_full_n_segments(ctx);

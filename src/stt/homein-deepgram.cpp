@@ -5,6 +5,10 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -46,9 +50,28 @@ void DeepgramSTTProvider::RunLoop() {
     hConnect = WinHttpConnect(hSession, L"api.deepgram.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (!hConnect) return;
 
-    // Deepgram URL with Keyword Boosting for Bible
-    std::wstring path = L"/v1/listen?model=nova-2&smart_format=true&encoding=linear16&sample_rate=16000&channels=1";
-    path += L"&keywords=Genesis&keywords=Exodus&keywords=Leviticus&keywords=Numbers&keywords=Deuteronomy"; // etc...
+    // Deepgram URL with all optimizations from Rhema research
+    std::wstring path =
+        L"/v1/listen"
+        L"?model=nova-3"           // nova-3 is more accurate for proper nouns
+        L"&smart_format=true"      // CRITICAL: auto-formats "Mark 5 1" → "Mark 5:1"
+        L"&punctuate=true"         // Adds sentence-ending punctuation
+        // interim_results=true is disabled for WinHTTP version to avoid fragment complexity
+        // if the user doesn't need live display. But the fix plan asked for it.
+        // For WinHTTP, interim_results might make HandleResponse more complex due to partial JSONs.
+        L"&interim_results=true"   
+        L"&no_delay=true"          // Minimal latency
+        L"&endpointing=300"        // 300ms silence = end of utterance
+        L"&encoding=linear16"
+        L"&sample_rate=16000"
+        L"&channels=1"
+        // Bible keyword boosting (boost value :5 = strong preference)
+        L"&keywords=Genesis:5&keywords=Exodus:5&keywords=Leviticus:5"
+        L"&keywords=Numbers:5&keywords=Deuteronomy:5&keywords=Joshua:5"
+        L"&keywords=Matthew:5&keywords=Mark:5&keywords=Luke:5&keywords=John:5"
+        L"&keywords=Acts:5&keywords=Romans:5&keywords=Psalms:5&keywords=Isaiah:5"
+        L"&keywords=Revelation:5&keywords=Corinthians:5&keywords=Ephesians:5"
+        L"&keywords=Galatians:5&keywords=Philippians:5&keywords=Hebrews:5";
 
     hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (!hRequest) return;
@@ -68,6 +91,9 @@ void DeepgramSTTProvider::RunLoop() {
     std::vector<float> pcmf32;
     std::vector<int16_t> pcm16;
 
+    auto last_activity = std::chrono::steady_clock::now();
+    static constexpr int kKeepAliveMs = 5000;
+
     while (running) {
         if (is_paused) {
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -83,10 +109,22 @@ void DeepgramSTTProvider::RunLoop() {
 
             // Send binary chunk
             WinHttpWebSocketSend(hWebSocket, WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, pcm16.data(), (DWORD)(pcm16.size() * 2));
+            last_activity = std::chrono::steady_clock::now();
+        }
+
+        // Send KeepAlive if no audio sent in 5 seconds
+        auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - last_activity).count();
+        if (idle_ms > kKeepAliveMs) {
+            const char* ping = R"({"type":"KeepAlive"})";
+            WinHttpWebSocketSend(hWebSocket,
+                WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
+                (void*)ping, (DWORD)strlen(ping));
+            last_activity = std::chrono::steady_clock::now();
         }
 
         // Non-blocking receive
-        char buffer[4096];
+        char buffer[8192]; // Increased buffer for safety
         DWORD dwDownloaded = 0;
         WINHTTP_WEB_SOCKET_BUFFER_TYPE type;
         if (WinHttpWebSocketReceive(hWebSocket, buffer, sizeof(buffer), &dwDownloaded, &type) == ERROR_SUCCESS) {
@@ -100,17 +138,25 @@ void DeepgramSTTProvider::RunLoop() {
     }
 }
 
-void DeepgramSTTProvider::HandleResponse(const std::string& json) {
-    // Basic JSON parsing for transcript (in a real app, use a proper JSON lib)
-    size_t pos = json.find("\"transcript\":\"");
-    if (pos != std::string::npos) {
-        size_t start = pos + 14;
-        size_t end = json.find("\"", start);
-        if (end != std::string::npos) {
-            std::string text = json.substr(start, end - start);
-            if (!text.empty() && on_transcript) {
-                on_transcript(text, json.find("\"is_final\":true") == std::string::npos);
-            }
-        }
+void DeepgramSTTProvider::HandleResponse(const std::string& json_str) {
+    // Deepgram sends {"is_final":true} on utterance completion.
+    // Partial results have is_final absent (not false).
+    bool is_final = (json_str.find("\"is_final\":true") != std::string::npos);
+
+    // Parse transcript text using QJsonDocument for robustness
+    QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(json_str));
+    if (doc.isNull() || !doc.isObject()) return;
+
+    QJsonObject root = doc.object();
+    QJsonObject channel = root["channel"].toObject();
+    QJsonArray alternatives = channel["alternatives"].toArray();
+    if (alternatives.isEmpty()) return;
+
+    QString text = alternatives[0].toObject()["transcript"].toString().trimmed();
+    if (text.isEmpty()) return;
+
+    // Emit partial results for live display; emit finals for detection pipeline
+    if (on_transcript) {
+        on_transcript(text.toStdString(), !is_final); // is_partial = NOT is_final
     }
 }
