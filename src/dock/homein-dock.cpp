@@ -60,25 +60,39 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setMinimumSize(250, 150);
 
-    // Force-load the Master Library from the standard OBS data path
-    char *db_path = obs_module_file("homein-bible.db");
-    if (db_path) {
-        if (bible_db.Open(db_path)) {
-            blog(LOG_INFO, "HomeIndeed: Bible engine active (Path: %s)", db_path);
-        } else {
-            blog(LOG_ERROR, "HomeIndeed: FAILED to open Bible database at %s", db_path);
+    // --- DATABASE PATH MIGRATION (Fix for Non-Admin Permissions) ---
+    char *config_path_ptr = obs_module_config_path("");
+    QString configPath = QString::fromUtf8(config_path_ptr);
+    bfree(config_path_ptr);
+
+    QDir().mkpath(configPath); // Ensure %APPDATA%/obs-studio/plugin_config/home-indeed exists
+
+    auto migrateDb = [](const QString& dbName, const QString& targetFolder) -> std::string {
+        QString targetPath = QDir(targetFolder).filePath(dbName);
+        
+        // If not in AppData yet, try to copy from the read-only module data folder
+        if (!QFile::exists(targetPath)) {
+            char *module_data_ptr = obs_module_file(dbName.toUtf8().constData());
+            if (module_data_ptr) {
+                QFile::copy(QString::fromUtf8(module_data_ptr), targetPath);
+                // Ensure the copied file is writable
+                QFile::setPermissions(targetPath, QFile::WriteOwner | QFile::ReadOwner | QFile::WriteUser | QFile::ReadUser);
+                bfree(module_data_ptr);
+                blog(LOG_INFO, "HomeIndeed: Migrated %s to writable AppData", dbName.toUtf8().constData());
+            }
         }
-        bfree(db_path);
-    }
-    
-    char *lyrics_db_path = obs_module_file("homein-lyrics.db");
-    if (lyrics_db_path) {
-        lyrics_engine.Initialize(lyrics_db_path);
-        bfree(lyrics_db_path);
+        return targetPath.toStdString();
+    };
+
+    std::string biblePath = migrateDb("homein-bible.db", configPath);
+    if (bible_db.Open(biblePath)) {
+        blog(LOG_INFO, "HomeIndeed: Bible engine active (Path: %s)", biblePath.c_str());
     } else {
-        blog(LOG_ERROR, "HomeIndeed: homein-lyrics.db NOT FOUND via obs_module_file. "
-                        "EasyWorship import and web lyrics caching will be unavailable.");
+        blog(LOG_ERROR, "HomeIndeed: FAILED to open Bible database at %s", biblePath.c_str());
     }
+
+    std::string lyricsPath = migrateDb("homein-lyrics.db", configPath);
+    lyrics_engine.Initialize(lyricsPath);
 
     SetupUI();
 
@@ -674,9 +688,6 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     src_layout->addWidget(audio_source_combo);
     ai_layout->addLayout(src_layout);
     
-    auto_push_checkbox = new QCheckBox("Auto-Push High Confidence Matches", parent);
-    ai_layout->addWidget(auto_push_checkbox);
-    
     layout->addWidget(ai_group);
 
     // Initial Populate
@@ -697,15 +708,21 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
 
     QGroupBox *auto_group = new QGroupBox("Intelligent Automation", parent);
     QVBoxLayout *a_group_layout = new QVBoxLayout(auto_group);
+    
     auto_switch_tabs_checkbox = new QCheckBox("Auto-Switch Tabs on Detection", parent);
     auto_switch_tabs_checkbox->setChecked(auto_switch_tabs);
     a_group_layout->addWidget(auto_switch_tabs_checkbox);
+    
     auto_search_checkbox = new QCheckBox("Auto-Search Databases", parent);
     auto_search_checkbox->setChecked(auto_search);
     a_group_layout->addWidget(auto_search_checkbox);
-    auto_push_checkbox = new QCheckBox("Auto-Push to Screen (1st Match)", parent);
+    
+    auto_push_checkbox = new QCheckBox("Auto-Push to Screen (High Confidence)", parent);
     auto_push_checkbox->setChecked(auto_push);
     a_group_layout->addWidget(auto_push_checkbox);
+    
+    layout->addWidget(auto_group);
+    layout->addStretch(); // Push everything to the top
 
     layout->addWidget(disp_group);
 
