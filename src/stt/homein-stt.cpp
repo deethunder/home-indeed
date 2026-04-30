@@ -141,9 +141,8 @@ void HomeInSTTEngine::RunLoop() {
         for (float s : pcmf32) sum += s * s;
         float rms = std::sqrtf(sum / static_cast<float>(pcmf32.size()));
 
-        // 0.008 is calibrated for worship microphones through a mixer at moderate gain.
-        // Range for normal speech: 0.006–0.015 RMS depending on mic gain.
-        static constexpr float kVadThreshold = 0.008f;
+        // 0.001 is much more sensitive to ensure Whisper picks up standard microphones without needing high gain.
+        static constexpr float kVadThreshold = 0.001f;
         if (rms < kVadThreshold) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;

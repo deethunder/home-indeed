@@ -79,6 +79,8 @@ private:
     void PopulateChapterGrid(const std::string& book_name, int count);
     void PopulateBookGrid();
     void PopulateAudioSources();
+    void ApplySavedAudioSource();
+    static void OBSFrontendEventCallback(enum obs_frontend_event event, void *private_data);
     void OnChapterSelected();
     void OnBookSelected();
     void ApplySettings();
@@ -107,6 +109,7 @@ private:
     QTextEdit  *bible_suggestion_view;
     QLineEdit  *bible_search_input;
     QLabel     *suggestion_label;
+    QLabel     *lyrics_suggestion_label;
     QPushButton *push_btn;
     QPushButton *bible_prev_btn;
     QPushButton *bible_next_btn;

@@ -39,7 +39,7 @@ HomeInRefParser::HomeInRefParser() {
         standard_ref_regex = std::regex(
             R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)"
             R"(\s*(?:chapter\s+)?(\d+))"
-            R"(\s*(?::|,|verse\s+|\s)\s*)"   // Added comma and bare space as separators
+            R"(\s*(?:[:,]\s*(?:verse\s+)?|verse\s+|\s)\s*)"   // Deepgram outputs "9, verse 27"
             R"((\d+)(?:\s*-\s*(\d+))?\b)",
             std::regex_constants::icase
         );

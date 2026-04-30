@@ -31,6 +31,7 @@
 #include <QPainter>
 #include <QDir>
 #include <QSettings>
+#include <obs-frontend-api.h>
 
 // Returns a QIcon from a bundled SVG, tinted to match Qt's text colour.
 static QIcon HomeInIcon(const QString& name, int size = 16) {
@@ -106,14 +107,7 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
 
     PopulateTranslations();
 
-    // LOAD PERSISTED STT SETTINGS (Configured during installation)
-    QSettings settings("HomeIndeed", "Plugin");
-    QString stt_mode = settings.value("stt_mode", "whisper").toString();
-    QString dg_key   = settings.value("deepgram_key", "").toString();
-
-    int mode_idx = stt_mode_combo->findData(stt_mode);
-    if (mode_idx >= 0) stt_mode_combo->setCurrentIndex(mode_idx);
-    deepgram_key_edit->setText(dg_key);
+    obs_frontend_add_event_callback(OBSFrontendEventCallback, this);
 
     // Audio level meter at 10 fps
     level_timer = new QTimer(this);
@@ -143,6 +137,7 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
 }
 
 HomeInDock::~HomeInDock() {
+    obs_frontend_remove_event_callback(OBSFrontendEventCallback, this);
     detection_running = false;
     if (detection_thread.joinable()) {
         detection_thread.join();
@@ -333,6 +328,10 @@ void HomeInDock::SetupUI() {
 
     l_layout->addLayout(l_options_layout);
     
+    lyrics_suggestion_label = new QLabel("", this);
+    lyrics_suggestion_label->setStyleSheet("font-weight: bold; color: #5294e2;");
+    l_layout->addWidget(lyrics_suggestion_label);
+
     lyrics_results_list = new QListWidget(this);
     lyrics_results_list->setStyleSheet("max-height: 100px;");
     lyrics_results_list->setVisible(false);
@@ -638,6 +637,14 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     deepgram_key_edit->setPlaceholderText("Enter your Deepgram API Key");
     stt_layout->addWidget(deepgram_key_edit, 1, 1);
 
+    // FIX: Load persisted STT settings immediately so ApplySettings() doesn't wipe them
+    QSettings settings("HomeIndeed", "Plugin");
+    QString stt_mode = settings.value("stt_mode", "whisper").toString();
+    QString dg_key   = settings.value("deepgram_key", "").toString();
+    int mode_idx = stt_mode_combo->findData(stt_mode);
+    if (mode_idx >= 0) stt_mode_combo->setCurrentIndex(mode_idx);
+    deepgram_key_edit->setText(dg_key);
+
     layout->addWidget(stt_group);
 
     QGroupBox *disp_group = new QGroupBox("Overlay Display", parent);
@@ -690,8 +697,13 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     
     layout->addWidget(ai_group);
 
-    // Initial Populate
-    PopulateAudioSources();
+    // The audio source will be bound automatically via OBS frontend event callback
+    // when the scene is loaded.
+    QString saved_source = settings.value("audio_source", "").toString();
+    if (!saved_source.isEmpty()) {
+        audio_source_combo->addItem(saved_source); // Placeholder so it doesn't look blank
+        audio_source_combo->setCurrentIndex(0);
+    }
 
     connect(audio_source_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
         QString source_name = audio_source_combo->itemText(index);
@@ -975,6 +987,10 @@ void HomeInDock::ToggleSettings() {
         PopulateAudioSources(); // Refresh list before showing
         view_stack->setCurrentIndex(1);
     } else {
+        QSettings settings("HomeIndeed", "Plugin");
+        settings.setValue("stt_mode", stt_mode_combo->currentData().toString());
+        settings.setValue("deepgram_key", deepgram_key_edit->text());
+        settings.setValue("audio_source", audio_source_combo->currentText());
         view_stack->setCurrentIndex(0);
     }
 }
@@ -1020,6 +1036,9 @@ void HomeInDock::OnToggleMic() {
         pause_btn->setIcon(HomeInIcon("pause", 20));
         pause_btn->setText("");
         pause_btn->setEnabled(false);
+        if (transcript_view) {
+            transcript_view->clear();
+        }
     }
 }
 
@@ -1507,7 +1526,7 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
     lyrics_results_list->clear();
     lyrics_verses_list->clear();
     if (results.empty()) {
-        suggestion_label->setText("No songs found matching your search.");
+        lyrics_suggestion_label->setText("No songs found matching your search.");
         lyrics_results_list->setVisible(false);
         return;
     }
@@ -1526,9 +1545,9 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
         }
         lyrics_results_list->setVisible(true);
         if (!lyrics_search_input->text().isEmpty())
-            suggestion_label->setText(QString("Found %1 matches. Select one above.").arg(results.size()));
+            lyrics_suggestion_label->setText(QString("Found %1 matches. Select one above.").arg(results.size()));
         else
-            suggestion_label->setText(QString("My Library (%1 songs):").arg(results.size()));
+            lyrics_suggestion_label->setText(QString("My Library (%1 songs):").arg(results.size()));
     } else if (results.size() == 1) {
         // Only one result, show it directly
         lyrics_results_list->setVisible(false);
@@ -1586,7 +1605,7 @@ void HomeInDock::OnSongSelected(QListWidgetItem* item) {
     // Update suggestion label to show song info
     QString info = QString::fromStdString(current_song.title);
     if (!current_song.artist.empty()) info += " (" + QString::fromStdString(current_song.artist) + ")";
-    suggestion_label->setText(info);
+    lyrics_suggestion_label->setText(info);
 }
 
 void HomeInDock::OnManualEntry() {
@@ -1642,7 +1661,7 @@ void HomeInDock::OnManualEntry() {
 void HomeInDock::DetectionLoop() {
     std::string sentence_buffer;
     auto last_push_time = std::chrono::steady_clock::now();
-    static constexpr int kFlushWords    = 8;     // flush after 8+ words
+    static constexpr int kFlushWords    = 15;    // flush after 15+ words (was 8) to allow "Genesis 9, verse 27" to fully assemble
     static constexpr int kFlushIdleMs   = 1500;  // flush after 1.5s of silence
 
     while (detection_running) {
@@ -1747,3 +1766,23 @@ void HomeInDock::LoadQueue() {
         }
     }
 }
+
+void HomeInDock::OBSFrontendEventCallback(enum obs_frontend_event event, void *private_data) {
+    if (event == OBS_FRONTEND_EVENT_SCENE_COLLECTION_CHANGED || event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
+        HomeInDock* dock = static_cast<HomeInDock*>(private_data);
+        QTimer::singleShot(500, dock, [dock]() { dock->ApplySavedAudioSource(); });
+    }
+}
+
+void HomeInDock::ApplySavedAudioSource() {
+    PopulateAudioSources();
+    QSettings settings("HomeIndeed", "Plugin");
+    QString saved_source = settings.value("audio_source", "").toString();
+    if (!saved_source.isEmpty()) {
+        int index = audio_source_combo->findText(saved_source);
+        if (index != -1) {
+            audio_source_combo->setCurrentIndex(index);
+        }
+    }
+}
+
