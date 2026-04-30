@@ -106,7 +106,6 @@ private:
     QTabWidget     *tabs_widget;
 
     QTextEdit  *transcript_view;
-    QTextEdit  *bible_suggestion_view;
     QLineEdit  *bible_search_input;
     QLabel     *suggestion_label;
     QLabel     *lyrics_suggestion_label;

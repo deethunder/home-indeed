@@ -29,10 +29,11 @@ bool HomeInSTTEngine::Initialize(const std::string& model_path) {
 
     ctx = whisper_init_from_file_with_params(model_path.c_str(), cparams);
     if (!ctx) {
-        blog(LOG_ERROR, "Failed to initialize Whisper context from %s", model_path.c_str());
+        blog(LOG_ERROR, "Whisper: Failed to initialize context from %s", model_path.c_str());
         return false;
     }
 
+    blog(LOG_INFO, "Whisper: Context initialized successfully from %s", model_path.c_str());
     blog(LOG_INFO, "Whisper STT Engine initialized successfully with model: %s", model_path.c_str());
     return true;
 }
@@ -42,6 +43,7 @@ void HomeInSTTEngine::Start(TranscriptCallback callback) {
 
     on_transcript = callback;
     running = true;
+    blog(LOG_INFO, "HomeIndeed: Whisper (Local) STT Started");
     worker_thread = std::thread(&HomeInSTTEngine::RunLoop, this);
 }
 
@@ -149,7 +151,9 @@ void HomeInSTTEngine::RunLoop() {
         }
 
         auto t_start = std::chrono::high_resolution_clock::now();
+        blog(LOG_INFO, "Whisper: Processing %d samples (RMS: %f)", (int)pcm_window.size(), rms);
         if (whisper_full(ctx, wparams, pcm_window.data(), (int)pcm_window.size()) != 0) {
+            blog(LOG_ERROR, "Whisper: Full processing failed");
             continue;
         }
         auto t_end = std::chrono::high_resolution_clock::now();

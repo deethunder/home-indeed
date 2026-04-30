@@ -33,7 +33,9 @@ void DeepgramSTTProvider::Start(TranscriptCallback callback) {
 void DeepgramSTTProvider::Stop() {
     running = false;
     if (hWebSocket) WinHttpWebSocketClose(hWebSocket, WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, NULL, 0);
+    
     if (worker_thread.joinable()) worker_thread.join();
+    if (receive_thread.joinable()) receive_thread.join();
     
     if (hWebSocket) WinHttpCloseHandle(hWebSocket);
     if (hRequest) WinHttpCloseHandle(hRequest);
@@ -48,7 +50,7 @@ void DeepgramSTTProvider::RunLoop() {
     if (!hSession) return;
 
     hConnect = WinHttpConnect(hSession, L"api.deepgram.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
-    if (!hConnect) return;
+    if (!hConnect) { blog(LOG_ERROR, "Deepgram: WinHttpConnect failed"); return; }
 
     // Deepgram URL with all optimizations from Rhema research
     std::wstring path =
@@ -81,11 +83,25 @@ void DeepgramSTTProvider::RunLoop() {
 
     if (!WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, NULL, 0)) return;
 
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) return;
-    if (!WinHttpReceiveResponse(hRequest, NULL)) return;
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) { blog(LOG_ERROR, "Deepgram: WinHttpSendRequest failed"); return; }
+    if (!WinHttpReceiveResponse(hRequest, NULL)) { blog(LOG_ERROR, "Deepgram: WinHttpReceiveResponse failed"); return; }
 
     hWebSocket = WinHttpWebSocketCompleteUpgrade(hRequest, NULL);
-    if (!hWebSocket) return;
+    if (!hWebSocket) { 
+        DWORD statusCode = 0;
+        DWORD size = sizeof(statusCode);
+        WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, 
+                            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &size, WINHTTP_NO_HEADER_INDEX);
+        blog(LOG_ERROR, "Deepgram: WebSocket upgrade failed. HTTP Status: %lu", statusCode);
+        if (statusCode == 401) blog(LOG_ERROR, "Deepgram: Unauthorized. Check your API Key.");
+        else if (statusCode == 400) blog(LOG_ERROR, "Deepgram: Bad Request. Check parameters.");
+        return; 
+    }
+    
+    blog(LOG_INFO, "Deepgram: WebSocket Connected successfully");
+
+    // Start receiving thread
+    receive_thread = std::thread(&DeepgramSTTProvider::ReceiveLoop, this);
 
     HomeInAudioHandler* audio = GetAudioHandler();
     std::vector<float> pcmf32;
@@ -108,7 +124,11 @@ void DeepgramSTTProvider::RunLoop() {
             }
 
             // Send binary chunk
-            WinHttpWebSocketSend(hWebSocket, WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, pcm16.data(), (DWORD)(pcm16.size() * 2));
+            if (WinHttpWebSocketSend(hWebSocket, WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, pcm16.data(), (DWORD)(pcm16.size() * 2)) == ERROR_SUCCESS) {
+                // blog(LOG_DEBUG, "Deepgram: Sent %d bytes", (int)(pcm16.size() * 2));
+            } else {
+                blog(LOG_ERROR, "Deepgram: Failed to send binary audio chunk");
+            }
             last_activity = std::chrono::steady_clock::now();
         }
 
@@ -123,18 +143,29 @@ void DeepgramSTTProvider::RunLoop() {
             last_activity = std::chrono::steady_clock::now();
         }
 
-        // Non-blocking receive
-        char buffer[8192]; // Increased buffer for safety
+        std::this_thread::sleep_for(std::chrono::milliseconds(20)); // High frequency for low latency
+    }
+}
+
+void DeepgramSTTProvider::ReceiveLoop() {
+    char buffer[16384]; 
+    while (running) {
         DWORD dwDownloaded = 0;
         WINHTTP_WEB_SOCKET_BUFFER_TYPE type;
-        if (WinHttpWebSocketReceive(hWebSocket, buffer, sizeof(buffer), &dwDownloaded, &type) == ERROR_SUCCESS) {
-            if (type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE || type == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE) {
-                std::string json(buffer, dwDownloaded);
-                HandleResponse(json);
-            }
+        
+        DWORD dwError = WinHttpWebSocketReceive(hWebSocket, buffer, sizeof(buffer), &dwDownloaded, &type);
+        if (dwError != ERROR_SUCCESS) {
+            if (running) blog(LOG_ERROR, "Deepgram Receive Error: %lu", dwError);
+            break;
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (type == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE || type == WINHTTP_WEB_SOCKET_UTF8_FRAGMENT_BUFFER_TYPE) {
+            std::string json(buffer, dwDownloaded);
+            // blog(LOG_DEBUG, "Deepgram Received: %s", json.c_str());
+            HandleResponse(json);
+        } else if (type == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE) {
+            break;
+        }
     }
 }
 

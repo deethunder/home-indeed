@@ -989,7 +989,7 @@ void HomeInDock::ToggleSettings() {
     } else {
         QSettings settings("HomeIndeed", "Plugin");
         settings.setValue("stt_mode", stt_mode_combo->currentData().toString());
-        settings.setValue("deepgram_key", deepgram_key_edit->text());
+        settings.setValue("deepgram_key", deepgram_key_edit->text().trimmed());
         settings.setValue("audio_source", audio_source_combo->currentText());
         view_stack->setCurrentIndex(0);
     }
@@ -1187,7 +1187,7 @@ void HomeInDock::ApplySettings() {
     // Save STT settings
     QSettings settings("HomeIndeed", "Plugin");
     settings.setValue("stt_mode", stt_mode_combo->currentData().toString());
-    settings.setValue("deepgram_key", deepgram_key_edit->text());
+    settings.setValue("deepgram_key", deepgram_key_edit->text().trimmed());
 }
 
 void HomeInDock::OnBibleSearchRequested() {
@@ -1320,26 +1320,29 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
 
     lyrics_engine.Search(text, false, [this](const std::vector<SongLyric>& results) {
         if (!results.empty()) {
-            QMetaObject::invokeMethod(this, "ShowLyricsResults",
-                                      Qt::QueuedConnection,
-                                      Q_ARG(std::vector<SongLyric>, results));
+            QMetaObject::invokeMethod(this, [this, results]() {
+                const auto& s = results[0];
+                QString label = QString::fromStdString(s.title);
+                if (!s.artist.empty()) label += " - " + QString::fromStdString(s.artist);
+                label += " (AI Detected)";
 
-            const auto& s = results[0];
-            QStringList lines =
-                QString::fromStdString(s.content).split('\n', Qt::SkipEmptyParts);
-
-            QMetaObject::invokeMethod(this, [this, lines]() {
-                for (int i = 0; i < lines.size(); i += 2) {
-                    QString chunk = lines[i];
-                    if (i + 1 < lines.size()) chunk += "\n" + lines[i + 1];
-                    QListWidgetItem* item = new QListWidgetItem(chunk, queue_list);
-                    item->setData(Qt::UserRole + 2, true);
+                // Check for duplicates
+                for(int i=0; i<queue_list->count(); ++i) {
+                    if(queue_list->item(i)->text().contains(QString::fromStdString(s.title))) return;
                 }
-            }, Qt::QueuedConnection);
 
-            if (auto_switch_tabs)
-                QMetaObject::invokeMethod(tabs_widget, "setCurrentIndex",
-                                          Qt::QueuedConnection, Q_ARG(int, 2));
+                QListWidgetItem* item = new QListWidgetItem(label, queue_list);
+                item->setData(Qt::UserRole + 2, true); // Mark as Lyrics
+                item->setIcon(HomeInIcon("music", 16));
+                
+                QVariant data; data.setValue(s);
+                item->setData(Qt::UserRole, data);
+                
+                SaveQueue();
+                blog(LOG_INFO, "HomeIndeed: Automatically queued detected song: %s", label.toUtf8().constData());
+                
+                if (auto_switch_tabs) tabs_widget->setCurrentIndex(3); // Switch to Queue tab
+            }, Qt::QueuedConnection);
         }
     });
 }
@@ -1460,10 +1463,13 @@ void HomeInDock::PerformFuzzySearch(const std::string& text) {
 
 void HomeInDock::ShowBibleSuggestion(const std::string& book, int chapter,
                                       int verse, const std::string& text) {
-    suggestion_label->setText(
-        QString("%1 %2:%3")
-            .arg(QString::fromStdString(book)).arg(chapter).arg(verse));
-    bible_suggestion_view->setText(QString::fromStdString(text));
+    QString ref = QString("%1 %2:%3").arg(QString::fromStdString(book)).arg(chapter).arg(verse);
+    suggestion_label->setText(ref);
+    
+    // Instead of a separate view, we can highlight it in the list if the chapter is already loaded,
+    // or just show the text in the suggestion label or a tooltip.
+    // For now, let's just ensure it doesn't crash.
+    blog(LOG_INFO, "HomeIndeed: AI Suggestion - %s: %s", ref.toUtf8().constData(), text.c_str());
 }
 void HomeInDock::SearchLyrics(const std::string& query) {
     lyrics_results_list->clear();
@@ -1705,7 +1711,7 @@ void HomeInDock::RunDetection(const std::string& text) {
     for (const auto& ref : refs) {
         BibleVerse v;
         if (bible_db.GetVerse(ref.book, ref.chapter, ref.verse_start,
-                               CurrentTranslation(), v)) {
+                                CurrentTranslation(), v)) {
             QMetaObject::invokeMethod(this, "ShowBibleSuggestion",
                 Qt::QueuedConnection,
                 Q_ARG(std::string, v.book_name),
@@ -1713,19 +1719,80 @@ void HomeInDock::RunDetection(const std::string& text) {
                 Q_ARG(int, v.verse),
                 Q_ARG(std::string, v.text));
             found = true;
+
+            // AUTOMATIC QUEUEING
+            if (auto_search) {
+                QMetaObject::invokeMethod(this, [this, v]() {
+                    QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
+                    if (!v.translation_abbr.empty()) label += " (" + QString::fromStdString(v.translation_abbr) + ")";
+                    
+                    // Check if already in queue to avoid duplicates
+                    bool exists = false;
+                    for(int i=0; i<queue_list->count(); ++i) {
+                        if(queue_list->item(i)->text() == label) { exists = true; break; }
+                    }
+
+                    if (!exists) {
+                        QListWidgetItem* item = new QListWidgetItem(label, queue_list);
+                        item->setData(Qt::UserRole + 2, false); // Bible
+                        item->setIcon(HomeInIcon("book", 16));
+                        
+                        QVariantMap bibleData;
+                        bibleData["book"] = QString::fromStdString(v.book_name);
+                        bibleData["chapter"] = v.chapter;
+                        bibleData["start"] = v.verse;
+                        bibleData["end"] = v.verse;
+                        bibleData["translation"] = QString::fromStdString(v.translation_abbr);
+                        item->setData(Qt::UserRole, bibleData);
+                        
+                        SaveQueue();
+                        blog(LOG_INFO, "HomeIndeed: Automatically queued %s", label.toUtf8().constData());
+                    }
+                }, Qt::QueuedConnection);
+            }
         }
     }
 
     // Layer 3: Fuzzy search if no direct match and text is substantial
-    if (!found && text.length() > 20) {
+    if (!found && text.length() > 35) {
         std::vector<BibleVerse> fuzzy = bible_db.SearchVerses(text, 1);
         if (!fuzzy.empty()) {
+            const auto& v = fuzzy[0];
             QMetaObject::invokeMethod(this, "ShowBibleSuggestion",
                 Qt::QueuedConnection,
-                Q_ARG(std::string, fuzzy[0].book_name),
-                Q_ARG(int, fuzzy[0].chapter),
-                Q_ARG(int, fuzzy[0].verse),
-                Q_ARG(std::string, fuzzy[0].text));
+                Q_ARG(std::string, v.book_name),
+                Q_ARG(int, v.chapter),
+                Q_ARG(int, v.verse),
+                Q_ARG(std::string, v.text));
+            
+            // AUTOMATIC QUEUEING (Fuzzy)
+            if (auto_search) {
+                QMetaObject::invokeMethod(this, [this, v]() {
+                    QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
+                    if (!v.translation_abbr.empty()) label += " (" + QString::fromStdString(v.translation_abbr) + ")";
+                    
+                    bool exists = false;
+                    for(int i=0; i<queue_list->count(); ++i) {
+                        if(queue_list->item(i)->text() == label) { exists = true; break; }
+                    }
+
+                    if (!exists) {
+                        QListWidgetItem* item = new QListWidgetItem(label, queue_list);
+                        item->setData(Qt::UserRole + 2, false); // Bible
+                        item->setIcon(HomeInIcon("book", 16));
+                        
+                        QVariantMap bibleData;
+                        bibleData["book"] = QString::fromStdString(v.book_name);
+                        bibleData["chapter"] = v.chapter;
+                        bibleData["start"] = v.verse;
+                        bibleData["end"] = v.verse;
+                        bibleData["translation"] = QString::fromStdString(v.translation_abbr);
+                        item->setData(Qt::UserRole, bibleData);
+                        
+                        SaveQueue();
+                    }
+                }, Qt::QueuedConnection);
+            }
         }
     }
 

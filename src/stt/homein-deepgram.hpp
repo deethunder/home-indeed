@@ -31,10 +31,12 @@ public:
 
 private:
     void RunLoop();
+    void ReceiveLoop();
     void HandleResponse(const std::string& json);
 
     std::string api_key;
     std::thread worker_thread;
+    std::thread receive_thread;
     std::atomic<bool> running{false};
     std::atomic<bool> is_paused{false};
     TranscriptCallback on_transcript;
