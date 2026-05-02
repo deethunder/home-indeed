@@ -144,7 +144,7 @@ void HomeInSTTEngine::RunLoop() {
         float rms = std::sqrtf(sum / static_cast<float>(pcmf32.size()));
 
         // 0.001 is much more sensitive to ensure Whisper picks up standard microphones without needing high gain.
-        static constexpr float kVadThreshold = 0.001f;
+        static constexpr float kVadThreshold = 0.005f;
         if (rms < kVadThreshold) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;

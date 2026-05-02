@@ -146,6 +146,13 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
         }
         if (active_channels > 0) mono_sample /= (float)active_channels;
         
+        // Diagnostic: Log channel count once
+        static bool logged_channels = false;
+        if (!logged_channels && active_channels > 0) {
+            blog(LOG_INFO, "HomeIndeed Audio Tap: Detected %d active channels", active_channels);
+            logged_channels = true;
+        }
+        
         float abs_sample = std::abs(mono_sample);
         if (abs_sample > max_peak) max_peak = abs_sample;
         

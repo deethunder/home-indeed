@@ -55,15 +55,14 @@ void DeepgramSTTProvider::RunLoop() {
     // Deepgram URL with all optimizations from Rhema research
     std::wstring path =
         L"/v1/listen"
-        L"?model=nova-3"           // nova-3 is more accurate for proper nouns
-        L"&smart_format=true"      // CRITICAL: auto-formats "Mark 5 1" → "Mark 5:1"
-        L"&punctuate=true"         // Adds sentence-ending punctuation
-        // interim_results=true is disabled for WinHTTP version to avoid fragment complexity
-        // if the user doesn't need live display. But the fix plan asked for it.
-        // For WinHTTP, interim_results might make HandleResponse more complex due to partial JSONs.
-        L"&interim_results=true"   
-        L"&no_delay=true"          // Minimal latency
-        L"&endpointing=300"        // 300ms silence = end of utterance
+        L"?model=nova-2-general"
+        L"&smart_format=true"
+        L"&interim_results=true"
+        L"&filler_words=false"
+        L"&endpointing=300"
+        L"&diarize=false"
+        L"&punctuate=true"
+        L"&profanity_filter=false"
         L"&encoding=linear16"
         L"&sample_rate=16000"
         L"&channels=1"
@@ -78,13 +77,30 @@ void DeepgramSTTProvider::RunLoop() {
     hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (!hRequest) return;
 
-    std::wstring auth = L"Authorization: Token " + std::wstring(api_key.begin(), api_key.end());
-    WinHttpAddRequestHeaders(hRequest, auth.c_str(), (ULONG)-1L, WINHTTP_ADDREQ_FLAG_ADD);
+    // Robust Authorization header (using wide string conversion like HttpClient)
+    wchar_t wKey[256] = {0};
+    MultiByteToWideChar(CP_UTF8, 0, api_key.c_str(), -1, wKey, 256);
+    std::wstring authHeader = L"Authorization: Token " + std::wstring(wKey);
+    WinHttpAddRequestHeaders(hRequest, authHeader.c_str(), (ULONG)-1L, WINHTTP_ADDREQ_FLAG_ADD);
 
-    if (!WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, NULL, 0)) return;
+    // Set secure protocols (TLS 1.2, 1.3)
+    DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | 0x00000800; // TLS 1.3
+    WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
 
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) { blog(LOG_ERROR, "Deepgram: WinHttpSendRequest failed"); return; }
-    if (!WinHttpReceiveResponse(hRequest, NULL)) { blog(LOG_ERROR, "Deepgram: WinHttpReceiveResponse failed"); return; }
+    if (!WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, NULL, 0)) {
+        blog(LOG_ERROR, "Deepgram: WinHttpSetOption(UPGRADE) failed. Error: %lu", GetLastError());
+        return;
+    }
+
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) { 
+        blog(LOG_ERROR, "Deepgram: WinHttpSendRequest failed. Error: %lu", GetLastError()); 
+        if (on_transcript) on_transcript("[Network Error: " + std::to_string(GetLastError()) + "]", false);
+        return; 
+    }
+    if (!WinHttpReceiveResponse(hRequest, NULL)) { 
+        blog(LOG_ERROR, "Deepgram: WinHttpReceiveResponse failed. Error: %lu", GetLastError()); 
+        return; 
+    }
 
     hWebSocket = WinHttpWebSocketCompleteUpgrade(hRequest, NULL);
     if (!hWebSocket) { 

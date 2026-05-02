@@ -96,6 +96,7 @@ private:
     bool mic_active  = false;
     bool mic_paused  = false;
     bool is_searching = false;
+    bool is_transcribing = false;
 
     QPushButton    *mic_btn;
     QPushButton    *pause_btn;

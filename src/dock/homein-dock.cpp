@@ -1051,6 +1051,9 @@ void HomeInDock::OnTogglePause() {
 }
 
 void HomeInDock::StartTranscription() {
+    if (is_transcribing) return;
+    is_transcribing = true;
+    
     QSettings settings("HomeIndeed", "Plugin");
     std::string mode = settings.value("stt_mode", "whisper").toString().toStdString();
     std::string key  = settings.value("deepgram_key", "").toString().toStdString();
@@ -1058,6 +1061,7 @@ void HomeInDock::StartTranscription() {
     if (mode == "deepgram") {
         if (key.empty()) {
             QMessageBox::warning(this, "Deepgram Error", "Please enter a Deepgram API Key in Settings.");
+            is_transcribing = false;
             return;
         }
         stt_provider = std::make_unique<DeepgramSTTProvider>();
@@ -1080,6 +1084,8 @@ void HomeInDock::StartTranscription() {
             return;
         }
     }
+
+    transcript_view->append("<span style='color:#777;'>[Starting " + QString::fromStdString(stt_provider->GetName()) + "...]</span>");
 
     stt_provider->Start([this](const std::string& text, bool is_partial) {
         if (!is_partial && !text.empty()) {
