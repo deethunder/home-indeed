@@ -30,6 +30,7 @@
 #include "../detection/homein-ref-parser.hpp"
 #include "../detection/homein-lyrics-engine.hpp"
 #include "../updater/homein-updater.hpp"
+#include <unordered_set>
 
 class HomeInDock : public QWidget {
     Q_OBJECT
@@ -173,4 +174,6 @@ private:
     HomeInUpdateChecker  updater;
 
     SongLyric current_song;
+    std::unordered_set<std::string> queued_refs;
+    QTimer *lyrics_debounce;
 };

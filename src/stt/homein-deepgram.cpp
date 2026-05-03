@@ -24,9 +24,8 @@ bool DeepgramSTTProvider::Initialize(const std::string& key) {
 }
 
 void DeepgramSTTProvider::Start(TranscriptCallback callback) {
-    if (running) return;
+    if (running.exchange(true)) return;
     on_transcript = callback;
-    running = true;
     worker_thread = std::thread(&DeepgramSTTProvider::RunLoop, this);
 }
 
@@ -46,8 +45,20 @@ void DeepgramSTTProvider::Stop() {
 }
 
 void DeepgramSTTProvider::RunLoop() {
-    hSession = WinHttpOpen(L"HomeIndeed/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    hSession = WinHttpOpen(L"HomeIndeed/1.0", 
+                           WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, 
+                           WINHTTP_NO_PROXY_NAME, 
+                           WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) return;
+
+    // Enable automatic proxy detection and set timeouts
+    DWORD option = WINHTTP_AUTOPROXY_AUTO_DETECT;
+    WinHttpSetOption(hSession, WINHTTP_OPTION_ENABLE_FEATURE, &option, sizeof(option));
+
+    DWORD timeout = 10000; // 10 seconds
+    WinHttpSetOption(hSession, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
+    WinHttpSetOption(hSession, WINHTTP_OPTION_SEND_TIMEOUT,    &timeout, sizeof(timeout));
+    WinHttpSetOption(hSession, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
 
     hConnect = WinHttpConnect(hSession, L"api.deepgram.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (!hConnect) { blog(LOG_ERROR, "Deepgram: WinHttpConnect failed"); return; }
@@ -55,7 +66,7 @@ void DeepgramSTTProvider::RunLoop() {
     // Deepgram URL with all optimizations from Rhema research
     std::wstring path =
         L"/v1/listen"
-        L"?model=nova-2-general"
+        L"?model=nova-3"
         L"&smart_format=true"
         L"&interim_results=true"
         L"&filler_words=false"
@@ -67,12 +78,9 @@ void DeepgramSTTProvider::RunLoop() {
         L"&sample_rate=16000"
         L"&channels=1"
         // Bible keyword boosting (boost value :5 = strong preference)
-        L"&keywords=Genesis:5&keywords=Exodus:5&keywords=Leviticus:5"
-        L"&keywords=Numbers:5&keywords=Deuteronomy:5&keywords=Joshua:5"
-        L"&keywords=Matthew:5&keywords=Mark:5&keywords=Luke:5&keywords=John:5"
-        L"&keywords=Acts:5&keywords=Romans:5&keywords=Psalms:5&keywords=Isaiah:5"
-        L"&keywords=Revelation:5&keywords=Corinthians:5&keywords=Ephesians:5"
-        L"&keywords=Galatians:5&keywords=Philippians:5&keywords=Hebrews:5";
+        L"&keywords=Genesis:5&keywords=Exodus:5&keywords=Leviticus:5&keywords=Numbers:5&keywords=Deuteronomy:5"
+        L"&keywords=Matthew:5&keywords=Mark:5&keywords=Luke:5&keywords=John:5&keywords=Acts:5&keywords=Romans:5"
+        L"&keywords=Psalms:5&keywords=Isaiah:5&keywords=Revelation:5&keywords=Hebrews:5";
 
     hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (!hRequest) return;
@@ -83,18 +91,21 @@ void DeepgramSTTProvider::RunLoop() {
     std::wstring authHeader = L"Authorization: Token " + std::wstring(wKey);
     WinHttpAddRequestHeaders(hRequest, authHeader.c_str(), (ULONG)-1L, WINHTTP_ADDREQ_FLAG_ADD);
 
-    // Set secure protocols (TLS 1.2, 1.3)
-    DWORD protocols = WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2 | 0x00000800; // TLS 1.3
-    WinHttpSetOption(hRequest, WINHTTP_OPTION_SECURE_PROTOCOLS, &protocols, sizeof(protocols));
-
     if (!WinHttpSetOption(hRequest, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, NULL, 0)) {
         blog(LOG_ERROR, "Deepgram: WinHttpSetOption(UPGRADE) failed. Error: %lu", GetLastError());
         return;
     }
 
     if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) { 
-        blog(LOG_ERROR, "Deepgram: WinHttpSendRequest failed. Error: %lu", GetLastError()); 
-        if (on_transcript) on_transcript("[Network Error: " + std::to_string(GetLastError()) + "]", false);
+        DWORD err = GetLastError();
+        std::string msg;
+        if (err == 12007) msg = "[Deepgram: DNS failed — check internet connection]";
+        else if (err == 12029) msg = "[Deepgram: Cannot connect — firewall may be blocking]";
+        else if (err == 12175) msg = "[Deepgram: SSL error — try disabling VPN]";
+        else msg = "[Deepgram: Network error " + std::to_string(err) + "]";
+        
+        blog(LOG_ERROR, "HomeIndeed: %s", msg.c_str()); 
+        if (on_transcript) on_transcript(msg, false);
         return; 
     }
     if (!WinHttpReceiveResponse(hRequest, NULL)) { 

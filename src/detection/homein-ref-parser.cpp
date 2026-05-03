@@ -34,13 +34,29 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
     "1 John", "2 John", "3 John", "Jude", "Revelation", "Rev"
 };
 
+static std::string NormalizeSpokenNumbers(const std::string& t) {
+    static const std::pair<std::string,std::string> nums[] = {
+        {"one","1"},{"two","2"},{"three","3"},{"four","4"},{"five","5"},
+        {"six","6"},{"seven","7"},{"eight","8"},{"nine","9"},{"ten","10"},
+        {"eleven","11"},{"twelve","12"},{"thirteen","13"},{"fourteen","14"},
+        {"fifteen","15"},{"sixteen","16"},{"seventeen","17"},{"eighteen","18"},
+        {"nineteen","19"},{"twenty","20"},{"thirty","30"},
+    };
+    std::string out = t;
+    for (auto& [word, digit] : nums) {
+        std::regex re("\\b" + word + "\\b", std::regex::icase);
+        out = std::regex_replace(out, re, digit);
+    }
+    return out;
+}
+
 HomeInRefParser::HomeInRefParser() {
     try {
         standard_ref_regex = std::regex(
-            R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+)"
-            R"(\s*(?:chapter\s+)?(\d+))"
-            R"(\s*(?:[:,]\s*(?:verse\s+)?|verse\s+|\s)\s*)"   // Deepgram outputs "9, verse 27"
-            R"((\d+)(?:\s*-\s*(\d+))?\b)",
+            R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+(?:\s+of\s+[a-zA-Z]+)?)\s*)"
+            R"((?:chapter\s+)?(\d+)\s*)"
+            R"((?::|,|verse\s+|\s)\s*)"      // added comma + bare space
+            R"((\d+)(?:\s*[-–]\s*(\d+))?\b)",
             std::regex_constants::icase
         );
 
@@ -58,10 +74,11 @@ HomeInRefParser::HomeInRefParser() {
 HomeInRefParser::~HomeInRefParser() {}
 
 std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
+    std::string normalized = NormalizeSpokenNumbers(text);
     std::vector<BibleRef> results;
 
     // --- Layer 1: Standard references (Regex) ---
-    auto it  = std::sregex_iterator(text.begin(), text.end(), standard_ref_regex);
+    auto it  = std::sregex_iterator(normalized.begin(), normalized.end(), standard_ref_regex);
     auto end = std::sregex_iterator();
 
     for (; it != end; ++it) {
@@ -96,7 +113,7 @@ std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
     std::string current_book;
     int current_chapter;
     if (results.empty() && context && context->GetCurrent(current_book, current_chapter)) {
-        auto v_it  = std::sregex_iterator(text.begin(), text.end(), verse_only_regex);
+        auto v_it  = std::sregex_iterator(normalized.begin(), normalized.end(), verse_only_regex);
         auto v_end = std::sregex_iterator();
 
         for (; v_it != v_end; ++v_it) {

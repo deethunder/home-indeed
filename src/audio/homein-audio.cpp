@@ -115,90 +115,94 @@ void HomeInAudioHandler::SetCaptureSource(obs_source_t* new_source) {
 }
 
 void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
-    std::lock_guard<std::mutex> lock(buffer_mutex);
+    bool should_notify = false;
+    {
+        std::lock_guard<std::mutex> lock(buffer_mutex);
 
-    // Get current OBS audio settings
-    uint32_t sample_rate = audio_output_get_sample_rate(obs_get_audio());
-    
-    // Initialize or recreate resampler if sample rate changes
-    if (!resampler || sample_rate != last_sample_rate) {
-        resampler = std::make_unique<HomeInResampler>(sample_rate, TARGET_SAMPLE_RATE);
-        last_sample_rate = sample_rate;
-        blog(LOG_INFO, "Audio Resampler initialized: %u Hz -> %u Hz", sample_rate, TARGET_SAMPLE_RATE);
-    }
+        // Get current OBS audio settings
+        uint32_t sample_rate = audio_output_get_sample_rate(obs_get_audio());
+        
+        // Initialize or recreate resampler if sample rate changes
+        if (!resampler || sample_rate != last_sample_rate) {
+            resampler = std::make_unique<HomeInResampler>(sample_rate, TARGET_SAMPLE_RATE);
+            last_sample_rate = sample_rate;
+            blog(LOG_INFO, "Audio Resampler initialized: %u Hz -> %u Hz", sample_rate, TARGET_SAMPLE_RATE);
+        }
 
-    float** data = reinterpret_cast<float**>(audio->data);
-    size_t frames = audio->frames;
-    
-    // 1. Mix to Mono
-    std::vector<float> mono_input;
-    mono_input.reserve(frames);
+        float** data = reinterpret_cast<float**>(audio->data);
+        size_t frames = audio->frames;
+        
+        // 1. Mix to Mono
+        std::vector<float> mono_input;
+        mono_input.reserve(frames);
 
-    float max_peak = 0.0f;
-    for (size_t i = 0; i < frames; ++i) {
-        float mono_sample = 0.0f;
-        int active_channels = 0;
-        for (int c = 0; c < 8; ++c) { 
-            if (data[c]) {
-                mono_sample += data[c][i];
-                active_channels++;
+        float max_peak = 0.0f;
+        for (size_t i = 0; i < frames; ++i) {
+            float mono_sample = 0.0f;
+            int active_channels = 0;
+            for (int c = 0; c < 8; ++c) { 
+                if (data[c]) {
+                    mono_sample += data[c][i];
+                    active_channels++;
+                }
+            }
+            if (active_channels > 0) mono_sample /= (float)active_channels;
+            
+            // Diagnostic: Log channel count once
+            static bool logged_channels = false;
+            if (!logged_channels && active_channels > 0) {
+                blog(LOG_INFO, "HomeIndeed Audio Tap: Detected %d active channels", active_channels);
+                logged_channels = true;
+            }
+            
+            float abs_sample = std::abs(mono_sample);
+            if (abs_sample > max_peak) max_peak = abs_sample;
+            
+            mono_input.push_back(mono_sample);
+        }
+
+        // Smooth the peak value (decaying peak)
+        float prev_level = current_level.load();
+        if (max_peak > prev_level) {
+            current_level.store(max_peak);
+        } else {
+            current_level.store(prev_level * 0.8f + max_peak * 0.2f);
+        }
+
+        // DEBUG: Log activity if we see ANY signal
+        static int log_counter = 0;
+        if (max_peak > 0.0001f && log_counter++ % 100 == 0) {
+            blog(LOG_INFO, "HomeIndeed Audio: Peak=%f (VAD Threshold=%f, Gate=%s)", 
+                 max_peak, VAD_THRESHOLD, gate_open ? "OPEN" : "CLOSED");
+        }
+
+        // 2. High-Quality Resample
+        if (max_peak > VAD_THRESHOLD) {
+            silent_frames = 0;
+            gate_open = true;
+        } else {
+            silent_frames++;
+            if (silent_frames > VAD_SILENCE_LIMIT) {
+                gate_open = false;
             }
         }
-        if (active_channels > 0) mono_sample /= (float)active_channels;
-        
-        // Diagnostic: Log channel count once
-        static bool logged_channels = false;
-        if (!logged_channels && active_channels > 0) {
-            blog(LOG_INFO, "HomeIndeed Audio Tap: Detected %d active channels", active_channels);
-            logged_channels = true;
+
+        if (gate_open) {
+            resampler->Process(mono_input, pcm_buffer);
+            should_notify = true;
         }
-        
-        float abs_sample = std::abs(mono_sample);
-        if (abs_sample > max_peak) max_peak = abs_sample;
-        
-        mono_input.push_back(mono_sample);
-    }
 
-    // Smooth the peak value (decaying peak)
-    float prev_level = current_level.load();
-    if (max_peak > prev_level) {
-        current_level.store(max_peak);
-    } else {
-        current_level.store(prev_level * 0.8f + max_peak * 0.2f);
-    }
-
-    // DEBUG: Log activity if we see ANY signal
-    static int log_counter = 0;
-    if (max_peak > 0.0001f && log_counter++ % 100 == 0) {
-        blog(LOG_INFO, "HomeIndeed Audio: Peak=%f (VAD Threshold=%f, Gate=%s)", 
-             max_peak, VAD_THRESHOLD, gate_open ? "OPEN" : "CLOSED");
-    }
-
-    // 2. High-Quality Resample
-    if (max_peak > VAD_THRESHOLD) {
-        silent_frames = 0;
-        gate_open = true;
-    } else {
-        silent_frames++;
-        if (silent_frames > VAD_SILENCE_LIMIT) {
-            gate_open = false;
+        // 3. Buffer Management
+        // Cap buffer at 30 seconds to prevent memory leaks if STT hangs
+        if (pcm_buffer.size() > TARGET_SAMPLE_RATE * 30) {
+            pcm_buffer.erase(pcm_buffer.begin(), pcm_buffer.begin() + (pcm_buffer.size() - TARGET_SAMPLE_RATE * 30));
         }
-    }
+    } // buffer_mutex released here
 
-    if (gate_open) {
-        resampler->Process(mono_input, pcm_buffer);
-        
+    if (should_notify) {
         // Notify STT engine that new data is ready
-        {
-            std::lock_guard<std::mutex> lock_notify(audio_mtx);
-            audio_cv.notify_one();
-        }
-    }
-
-    // 3. Buffer Management
-    // Cap buffer at 30 seconds to prevent memory leaks if STT hangs
-    if (pcm_buffer.size() > TARGET_SAMPLE_RATE * 30) {
-        pcm_buffer.erase(pcm_buffer.begin(), pcm_buffer.begin() + (pcm_buffer.size() - TARGET_SAMPLE_RATE * 30));
+        std::lock_guard<std::mutex> lock_notify(audio_mtx);
+        audio_cv.notify_one();
     }
 }
 

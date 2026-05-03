@@ -39,10 +39,8 @@ bool HomeInSTTEngine::Initialize(const std::string& model_path) {
 }
 
 void HomeInSTTEngine::Start(TranscriptCallback callback) {
-    if (running) return;
-
+    if (running.exchange(true)) return;
     on_transcript = callback;
-    running = true;
     blog(LOG_INFO, "HomeIndeed: Whisper (Local) STT Started");
     worker_thread = std::thread(&HomeInSTTEngine::RunLoop, this);
 }
@@ -88,14 +86,8 @@ void HomeInSTTEngine::RunLoop() {
 
     // Church/worship vocabulary bias
     wparams.initial_prompt =
-        // Leading examples of colon-formatted refs prime Whisper's output format.
-        "John 3:16. Mark 5:1. Romans 8:28. Psalms 23:1. Isaiah 53:5. "
-        "Matthew 28:19. Luke 4:18. Acts 2:38. Ephesians 2:8. Revelation 21:4. "
-        "Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, Ruth, "
-        "Samuel, Kings, Chronicles, Psalms, Proverbs, Isaiah, Jeremiah, Ezekiel, "
-        "Daniel, Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, "
-        "Ephesians, Philippians, Colossians, Hebrews, James, Peter, Revelation. "
-        "Hallelujah, amen, praise, worship, glory, grace, salvation, Holy Spirit.";
+        "Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, Ruth, Samuel, Kings, Chronicles, Ezra, Nehemiah, Esther, Job, Psalms, Proverbs, Ecclesiastes, Song of Solomon, Isaiah, Jeremiah, Lamentations, Ezekiel, Daniel, Hosea, Joel, Amos, Obadiah, Jonah, Micah, Nahum, Habakkuk, Zephaniah, Haggai, Zechariah, Malachi, Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, Ephesians, Philippians, Colossians, Thessalonians, Timothy, Titus, Philemon, Hebrews, James, Peter, Jude, Revelation. "
+        "John 3:16. Mark 5:1. Romans 8:28. Psalms 23:1. Hallelujah, amen, praise, worship, glory.";
 
     while (running) {
         // --- EFFICIENCY UPGRADE: Wait for data notification ---
@@ -136,22 +128,8 @@ void HomeInSTTEngine::RunLoop() {
                 pcm_window.begin() + ((int)pcm_window.size() - kWindowSamples));
         }
 
-        // Compute RMS on the full Whisper input window.
-        // Must be on pcm_window/pcmf32, NOT on latest_samples — a tiny new chunk
-        // can have near-zero RMS even when the window contains clear speech.
-        float sum = 0.0f;
-        for (float s : pcmf32) sum += s * s;
-        float rms = std::sqrtf(sum / static_cast<float>(pcmf32.size()));
-
-        // 0.001 is much more sensitive to ensure Whisper picks up standard microphones without needing high gain.
-        static constexpr float kVadThreshold = 0.005f;
-        if (rms < kVadThreshold) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            continue;
-        }
-
         auto t_start = std::chrono::high_resolution_clock::now();
-        blog(LOG_INFO, "Whisper: Processing %d samples (RMS: %f)", (int)pcm_window.size(), rms);
+        blog(LOG_INFO, "Whisper: Processing %d samples", (int)pcm_window.size());
         if (whisper_full(ctx, wparams, pcm_window.data(), (int)pcm_window.size()) != 0) {
             blog(LOG_ERROR, "Whisper: Full processing failed");
             continue;

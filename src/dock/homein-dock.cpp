@@ -95,6 +95,10 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
     std::string lyricsPath = migrateDb("homein-lyrics.db", configPath);
     lyrics_engine.Initialize(lyricsPath);
 
+    lyrics_debounce = new QTimer(this);
+    lyrics_debounce->setSingleShot(true);
+    lyrics_debounce->setInterval(400);
+
     SetupUI();
 
     // AI ASYNC PIPELINE SETUP
@@ -300,7 +304,12 @@ void HomeInDock::SetupUI() {
     l_search_layout->addWidget(l_search_btn);
     l_layout->addLayout(l_search_layout);
     
-    connect(lyrics_search_input, &QLineEdit::textChanged, this, &HomeInDock::OnLyricsSearchChanged);
+    connect(lyrics_search_input, &QLineEdit::textChanged, [this]() {
+        lyrics_debounce->start();
+    });
+    connect(lyrics_debounce, &QTimer::timeout, [this]() {
+        OnLyricsSearchChanged(lyrics_search_input->text());
+    });
     connect(lyrics_search_input, &QLineEdit::returnPressed, [l_search_btn]() { l_search_btn->click(); });
 
     QHBoxLayout *l_options_layout = new QHBoxLayout();
@@ -542,8 +551,12 @@ void HomeInDock::SetupUI() {
 
     // FIX: Apply initial settings to the renderer immediately
     ApplySettings();
-    OnLyricsSearchChanged(""); 
     
+    connect(tabs_widget, &QTabWidget::currentChanged, [this](int index) {
+        if (index == 2 && lyrics_results_list->count() == 0) {
+            OnLyricsSearchChanged(""); // load library only when tab first opened
+        }
+    });
     connect(manual_btn, &QPushButton::clicked, this, &HomeInDock::OnManualEntry);
 }
 
@@ -625,25 +638,46 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     QGroupBox *stt_group = new QGroupBox("Speech Engine", parent);
     QGridLayout *stt_layout = new QGridLayout(stt_group);
     
-    stt_layout->addWidget(new QLabel("Provider:", parent), 0, 0);
+    stt_layout->addWidget(new QLabel("Smart Mode:", parent), 0, 0);
     stt_mode_combo = new QComboBox(parent);
-    stt_mode_combo->addItem("Local (Whisper - Offline)", "whisper");
-    stt_mode_combo->addItem("Cloud (Deepgram - Faster)", "deepgram");
+    stt_mode_combo->addItem("Auto (recommended)", "auto");
+    stt_mode_combo->addItem("Always offline", "whisper");
     stt_layout->addWidget(stt_mode_combo, 0, 1);
 
-    stt_layout->addWidget(new QLabel("Deepgram Key:", parent), 1, 0);
+    // Advanced section for Deepgram Key
+    QGroupBox *adv_group = new QGroupBox("Advanced Cloud Settings", parent);
+    QVBoxLayout *adv_layout = new QVBoxLayout(adv_group);
+    adv_group->setCheckable(true);
+    adv_group->setChecked(false);
+    
+    QHBoxLayout *key_layout = new QHBoxLayout();
+    key_layout->addWidget(new QLabel("Deepgram Key:", parent));
     deepgram_key_edit = new QLineEdit(parent);
     deepgram_key_edit->setEchoMode(QLineEdit::Password);
     deepgram_key_edit->setPlaceholderText("Enter your Deepgram API Key");
-    stt_layout->addWidget(deepgram_key_edit, 1, 1);
+    key_layout->addWidget(deepgram_key_edit);
+    adv_layout->addLayout(key_layout);
 
-    // FIX: Load persisted STT settings immediately so ApplySettings() doesn't wipe them
+    QPushButton *get_key_btn = new QPushButton("Get free key at deepgram.com", parent);
+    get_key_btn->setStyleSheet("color: #8ab4f8; text-decoration: underline; background: none; border: none; text-align: left;");
+    connect(get_key_btn, &QPushButton::clicked, []() {
+        QDesktopServices::openUrl(QUrl("https://deepgram.com/signup"));
+    });
+    adv_layout->addWidget(get_key_btn);
+
+    stt_layout->addWidget(adv_group, 1, 0, 1, 2);
+
+    // Load persisted STT settings
     QSettings settings("HomeIndeed", "Plugin");
     QString stt_mode = settings.value("stt_mode", "whisper").toString();
     QString dg_key   = settings.value("deepgram_key", "").toString();
     int mode_idx = stt_mode_combo->findData(stt_mode);
     if (mode_idx >= 0) stt_mode_combo->setCurrentIndex(mode_idx);
     deepgram_key_edit->setText(dg_key);
+    
+    // Connect STT settings to ApplySettings for immediate effect
+    connect(stt_mode_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](){ ApplySettings(); });
+    connect(deepgram_key_edit, &QLineEdit::editingFinished, [this](){ ApplySettings(); });
 
     layout->addWidget(stt_group);
 
@@ -1055,39 +1089,62 @@ void HomeInDock::StartTranscription() {
     is_transcribing = true;
     
     QSettings settings("HomeIndeed", "Plugin");
-    std::string mode = settings.value("stt_mode", "whisper").toString().toStdString();
-    std::string key  = settings.value("deepgram_key", "").toString().toStdString();
+    QString mode = settings.value("stt_mode", "auto").toString();
+    QString key  = settings.value("deepgram_key", "").toString();
 
-    if (mode == "deepgram") {
-        if (key.empty()) {
-            QMessageBox::warning(this, "Deepgram Error", "Please enter a Deepgram API Key in Settings.");
-            is_transcribing = false;
-            return;
-        }
+    bool use_deepgram = (mode == "auto" && !key.isEmpty()) || mode == "cloud";
+
+    if (use_deepgram) {
         stt_provider = std::make_unique<DeepgramSTTProvider>();
-        stt_provider->Initialize(key);
-    } else {
+        if (!stt_provider->Initialize(key.toStdString())) {
+            blog(LOG_WARNING, "HomeIndeed: Deepgram init failed, falling back to Whisper");
+            use_deepgram = false;
+        }
+    }
+    
+    if (!use_deepgram) {
         stt_provider = std::make_unique<HomeInSTTEngine>();
         
-        char* model_path = obs_module_file("models/ggml-tiny.en.bin");
-        if (!model_path) model_path = obs_module_file("models/ggml-base.en.bin");
+        const char* model_names[] = {
+            "models/ggml-tiny.en.bin",
+            "models/ggml-base.en.bin",
+            "models/ggml-small.en.bin"
+        };
+        char* model_path = nullptr;
+
+        for (const char* name : model_names) {
+            char* candidate = obs_module_file(name);
+            blog(LOG_INFO, "HomeIndeed: Checking model: %s -> %s",
+                 name, candidate ? candidate : "NOT FOUND");
+            if (candidate) { model_path = candidate; break; }
+        }
         
         if (model_path) {
             if (!stt_provider->Initialize(model_path)) {
+                blog(LOG_ERROR, "HomeIndeed: Failed to initialize Whisper with model: %s", model_path);
                 QMessageBox::critical(this, "Whisper Error", "Failed to load model.");
                 bfree(model_path);
+                is_transcribing = false;
                 return;
             }
             bfree(model_path);
         } else {
-            QMessageBox::critical(this, "Model Missing", "No Whisper models found.");
+            blog(LOG_ERROR, "HomeIndeed: No Whisper model found in OBS plugin data dir.");
+            QString data_path = QString::fromUtf8(obs_get_module_data_path(obs_current_module()));
+            QMessageBox::critical(this, "Model Missing", 
+                "Whisper model not found.\n\nCopy ggml-tiny.en.bin to:\n" + data_path + "/models/\n\n"
+                "Download: huggingface.co/ggerganov/whisper.cpp");
+            is_transcribing = false;
             return;
         }
     }
 
-    transcript_view->append("<span style='color:#777;'>[Starting " + QString::fromStdString(stt_provider->GetName()) + "...]</span>");
-
     stt_provider->Start([this](const std::string& text, bool is_partial) {
+        // Show ALL transcripts in the view immediately (including partials)
+        QMetaObject::invokeMethod(this, "AppendTranscript",
+            Qt::QueuedConnection, Q_ARG(std::string, text));
+
+        // Only push FINALS to the detection queue
         if (!is_partial && !text.empty()) {
             transcript_queue->Push(text);
         }
@@ -1101,6 +1158,7 @@ void HomeInDock::StopTranscription() {
         stt_provider->Stop();
         stt_provider.reset();
     }
+    is_transcribing = false;
 }
 
 void HomeInDock::OnImportEasyWorship() {
@@ -1190,10 +1248,25 @@ void HomeInDock::ApplySettings() {
     HomeInRenderer* r = GetActiveRenderer();
     if (r) r->UpdateSettings(s);
 
-    // Save STT settings
     QSettings settings("HomeIndeed", "Plugin");
-    settings.setValue("stt_mode", stt_mode_combo->currentData().toString());
-    settings.setValue("deepgram_key", deepgram_key_edit->text().trimmed());
+    QString old_mode = settings.value("stt_mode", "whisper").toString();
+    QString old_key  = settings.value("deepgram_key", "").toString();
+    
+    QString new_mode = stt_mode_combo->currentData().toString();
+    QString new_key  = deepgram_key_edit->text().trimmed();
+
+    bool changed = (old_mode != new_mode || old_key != new_key);
+
+    // Save STT settings
+    settings.setValue("stt_mode", new_mode);
+    settings.setValue("deepgram_key", new_key);
+
+    // Auto-restart engine if active and settings changed
+    if (mic_active && changed) {
+        blog(LOG_INFO, "HomeIndeed: STT Settings changed, restarting engine...");
+        StopTranscription();
+        StartTranscription();
+    }
 }
 
 void HomeInDock::OnBibleSearchRequested() {
@@ -1673,8 +1746,8 @@ void HomeInDock::OnManualEntry() {
 void HomeInDock::DetectionLoop() {
     std::string sentence_buffer;
     auto last_push_time = std::chrono::steady_clock::now();
-    static constexpr int kFlushWords    = 15;    // flush after 15+ words (was 8) to allow "Genesis 9, verse 27" to fully assemble
-    static constexpr int kFlushIdleMs   = 1500;  // flush after 1.5s of silence
+    static constexpr int kFlushWords    = 6;    // reduced from 15
+    static constexpr int kFlushIdleMs   = 800;  // reduced from 1500ms
 
     while (detection_running) {
         std::string chunk;
@@ -1692,6 +1765,9 @@ void HomeInDock::DetectionLoop() {
         // Update the transcript UI
         QMetaObject::invokeMethod(this, "AppendTranscript",
             Qt::QueuedConnection, Q_ARG(std::string, chunk));
+
+        // Run detection on every individual chunk for sub-second responsiveness
+        RunDetection(chunk);
 
         sentence_buffer += " " + chunk;
         last_push_time = std::chrono::steady_clock::now();
@@ -1732,13 +1808,11 @@ void HomeInDock::RunDetection(const std::string& text) {
                     QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
                     if (!v.translation_abbr.empty()) label += " (" + QString::fromStdString(v.translation_abbr) + ")";
                     
-                    // Check if already in queue to avoid duplicates
-                    bool exists = false;
-                    for(int i=0; i<queue_list->count(); ++i) {
-                        if(queue_list->item(i)->text() == label) { exists = true; break; }
-                    }
+                    std::string label_str = label.toStdString();
+                    if (queued_refs.count(label_str)) return;
 
-                    if (!exists) {
+                    if (true) {
+                        queued_refs.insert(label_str);
                         QListWidgetItem* item = new QListWidgetItem(label, queue_list);
                         item->setData(Qt::UserRole + 2, false); // Bible
                         item->setIcon(HomeInIcon("book", 16));
@@ -1777,12 +1851,11 @@ void HomeInDock::RunDetection(const std::string& text) {
                     QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
                     if (!v.translation_abbr.empty()) label += " (" + QString::fromStdString(v.translation_abbr) + ")";
                     
-                    bool exists = false;
-                    for(int i=0; i<queue_list->count(); ++i) {
-                        if(queue_list->item(i)->text() == label) { exists = true; break; }
-                    }
+                    std::string label_str = label.toStdString();
+                    if (queued_refs.count(label_str)) return;
 
-                    if (!exists) {
+                    if (true) {
+                        queued_refs.insert(label_str);
                         QListWidgetItem* item = new QListWidgetItem(label, queue_list);
                         item->setData(Qt::UserRole + 2, false); // Bible
                         item->setIcon(HomeInIcon("book", 16));
