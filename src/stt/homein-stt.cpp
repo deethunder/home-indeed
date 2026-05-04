@@ -129,13 +129,18 @@ void HomeInSTTEngine::RunLoop() {
         }
 
         // Secondary VAD: Whisper is prone to hallucinations on silence.
-        float sum = 0.0f;
+       float sum = 0.0f;
         for (float s : pcm_window) sum += s * s;
         float rms = std::sqrtf(sum / static_cast<float>(pcm_window.size()));
         
         static constexpr float kVadThreshold = 0.002f;
         if (rms < kVadThreshold) {
-            pcmf32.clear(); // ADD THIS: Prevent massive silence buildup!
+            // SILENCE DETECTED: Flush the last spoken phrase as a FINAL output
+            if (!last_emitted_text.empty()) {
+                if (on_transcript) on_transcript(last_emitted_text, false);
+                last_emitted_text.clear();
+            }
+            pcmf32.clear(); // WIPE BUFFER to prevent massive silence buildup
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
@@ -167,14 +172,13 @@ void HomeInSTTEngine::RunLoop() {
         }
 
         if (!full_text.empty() && on_transcript) {
-            // Trim whitespace and skips
             full_text.erase(0, full_text.find_first_not_of(" \t\n\r"));
             auto last = full_text.find_last_not_of(" \t\n\r");
             if (last != std::string::npos) full_text.erase(last + 1);
 
             if (full_text.length() > 2 && full_text != last_emitted_text) {
                 last_emitted_text = full_text;
-                on_transcript(full_text, false);
+                on_transcript(full_text, true); // EMIT AS PARTIAL while speaking
             }
         }
     }

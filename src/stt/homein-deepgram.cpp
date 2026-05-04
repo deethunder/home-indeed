@@ -60,24 +60,16 @@ void DeepgramSTTProvider::RunLoop() {
     if (!hConnect) { blog(LOG_ERROR, "Deepgram: WinHttpConnect failed"); return; }
 
     // Deepgram URL with all optimizations from Rhema research
-    std::wstring path =
+   std::wstring path =
         L"/v1/listen"
-        L"?model=nova-3"
+        L"?model=nova-2"           // Use the stable model
         L"&smart_format=true"
+        L"&dictation=true"         // Forces "Zechariah 5:1" instead of garbled text
         L"&interim_results=true"
-        L"&filler_words=false"
         L"&endpointing=300"
-        L"&diarize=false"
-        L"&punctuate=true"
-        L"&profanity_filter=false"
         L"&encoding=linear16"
         L"&sample_rate=16000"
-        L"&channels=1"
-        // Bible keyword boosting (boost value :5 = strong preference)
-        L"&keywords=Genesis:5&keywords=Exodus:5&keywords=Leviticus:5&keywords=Numbers:5&keywords=Deuteronomy:5"
-        L"&keywords=Matthew:5&keywords=Mark:5&keywords=Luke:5&keywords=John:5&keywords=Acts:5&keywords=Romans:5"
-        L"&keywords=Psalms:5&keywords=Isaiah:5&keywords=Revelation:5&keywords=Hebrews:5";
-
+        L"&channels=1";
     hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (!hRequest) return;
 

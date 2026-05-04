@@ -831,9 +831,7 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     });
 }
 
-// FIX #1: Stores abbreviation as BOTH item text AND item data.
-// All reads now use currentData().toString() to get the clean abbreviation
-// (e.g. "KJV") regardless of how the item is displayed.
+
 void HomeInDock::PopulateTranslations() {
     if (!bible_version_combo) return;
 
@@ -1140,13 +1138,13 @@ void HomeInDock::StartTranscription() {
     }
 
     stt_provider->Start([this](const std::string& text, bool is_partial) {
-        // Show ALL transcripts in the view immediately (including partials)
-        QMetaObject::invokeMethod(this, "AppendTranscript",
-            Qt::QueuedConnection, Q_ARG(std::string, text));
-
-        // Only push FINALS to the detection queue
         if (!is_partial && !text.empty()) {
-            transcript_queue->Push(text);
+            // Spoken phrase finished: Append to log and push to AI detection queue
+            QMetaObject::invokeMethod(this, "AppendTranscript", Qt::QueuedConnection, Q_ARG(std::string, text));
+            transcript_queue->Push(text); 
+        } else if (last_word_field) {
+            // Still speaking: Only update the live green text field
+            QMetaObject::invokeMethod(last_word_field, "setText", Qt::QueuedConnection, Q_ARG(QString, QString::fromStdString(text)));
         }
     });
 
@@ -1379,13 +1377,6 @@ void HomeInDock::AppendTranscript(const std::string& text) {
     transcript_view->insertPlainText(QString::fromStdString(text) + " ");
     transcript_view->verticalScrollBar()->setValue(
         transcript_view->verticalScrollBar()->maximum());
-
-    if (last_word_field)
-        last_word_field->setText(QString::fromStdString(text));
-
-    // PHASE 1: Actions disabled to focus on transcription accuracy first.
-    CheckForReferences(text);
-    CheckForLyrics(text);
 }
 
 void HomeInDock::SetFocusMode(FocusMode mode) {
@@ -1808,23 +1799,27 @@ void HomeInDock::RunDetection(const std::string& text) {
                     QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
                     if (!v.translation_abbr.empty()) label += " (" + QString::fromStdString(v.translation_abbr) + ")";
                     
-                    std::string label_str = label.toStdString();
-                    if (queued_refs.count(label_str)) return;
+                    // NEW ANTI-SPAM LOGIC: Check if it's already the LAST item in the queue.
+                    if (queue_list->count() > 0) {
+                        QListWidgetItem* lastItem = queue_list->item(queue_list->count() - 1);
+                        if (lastItem->text() == label) {
+                            return; // Stop spamming the exact same verse back to back
+                        }
+                    }
 
-                    if (true) {
-                        queued_refs.insert(label_str);
-                        QListWidgetItem* item = new QListWidgetItem(label, queue_list);
-                        item->setData(Qt::UserRole + 2, false); // Bible
-                        item->setIcon(HomeInIcon("book", 16));
-                        
-                        QVariantMap bibleData;
-                        bibleData["book"] = QString::fromStdString(v.book_name);
-                        bibleData["chapter"] = v.chapter;
-                        bibleData["start"] = v.verse;
-                        bibleData["end"] = v.verse;
-                        bibleData["translation"] = QString::fromStdString(v.translation_abbr);
-                        item->setData(Qt::UserRole, bibleData);
-                        
+                    // ADD IT TO THE QUEUE
+                    QListWidgetItem* item = new QListWidgetItem(label, queue_list);
+                    item->setData(Qt::UserRole + 2, false); // Bible
+                    item->setIcon(HomeInIcon("book", 16));
+                    
+                    QVariantMap bibleData;
+                    bibleData["book"] = QString::fromStdString(v.book_name);
+                    bibleData["chapter"] = v.chapter;
+                    bibleData["start"] = v.verse;
+                    bibleData["end"] = v.verse;
+                    bibleData["translation"] = QString::fromStdString(v.translation_abbr);
+                    item->setData(Qt::UserRole, bibleData);
+                    
                     SaveQueue();
                     blog(LOG_INFO, "HomeIndeed: Automatically queued %s", label.toUtf8().constData());
                     
@@ -1856,11 +1851,10 @@ void HomeInDock::RunDetection(const std::string& text) {
                         bible_verses_list->setVisible(true);
                         bible_verses_list->setCurrentRow(current_bible_verse_index);
                     }
-                }
-            }, Qt::QueuedConnection);
+                }, Qt::QueuedConnection);
+            }
         }
     }
-}
 
     // Layer 3: Fuzzy search if no direct match and text is substantial
     if (!found && text.length() > 35) {
@@ -1880,25 +1874,27 @@ void HomeInDock::RunDetection(const std::string& text) {
                     QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
                     if (!v.translation_abbr.empty()) label += " (" + QString::fromStdString(v.translation_abbr) + ")";
                     
-                    std::string label_str = label.toStdString();
-                    if (queued_refs.count(label_str)) return;
-
-                    if (true) {
-                        queued_refs.insert(label_str);
-                        QListWidgetItem* item = new QListWidgetItem(label, queue_list);
-                        item->setData(Qt::UserRole + 2, false); // Bible
-                        item->setIcon(HomeInIcon("book", 16));
-                        
-                        QVariantMap bibleData;
-                        bibleData["book"] = QString::fromStdString(v.book_name);
-                        bibleData["chapter"] = v.chapter;
-                        bibleData["start"] = v.verse;
-                        bibleData["end"] = v.verse;
-                        bibleData["translation"] = QString::fromStdString(v.translation_abbr);
-                        item->setData(Qt::UserRole, bibleData);
-                        
-                        SaveQueue();
+                    if (queue_list->count() > 0) {
+                        QListWidgetItem* lastItem = queue_list->item(queue_list->count() - 1);
+                        if (lastItem->text() == label) {
+                            return; // Stop spamming the exact same verse back to back
+                        }
                     }
+
+                    // ADD IT TO THE QUEUE
+                    QListWidgetItem* item = new QListWidgetItem(label, queue_list);
+                    item->setData(Qt::UserRole + 2, false); // Bible
+                    item->setIcon(HomeInIcon("book", 16));
+                    
+                    QVariantMap bibleData;
+                    bibleData["book"] = QString::fromStdString(v.book_name);
+                    bibleData["chapter"] = v.chapter;
+                    bibleData["start"] = v.verse;
+                    bibleData["end"] = v.verse;
+                    bibleData["translation"] = QString::fromStdString(v.translation_abbr);
+                    item->setData(Qt::UserRole, bibleData);
+                        
+                    SaveQueue();
                 }, Qt::QueuedConnection);
             }
         }

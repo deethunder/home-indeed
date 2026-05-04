@@ -17,7 +17,7 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
     "Deuteronomy", "Deut", "Joshua", "Josh", "Judges", "Judg", "Ruth",
     "1 Samuel", "2 Samuel", "1 Kings", "2 Kings",
     "1 Chronicles", "2 Chronicles", "Ezra", "Nehemiah", "Esther",
-    "Job", "Jup", "Jb", "Psalms", "Psa", "Proverbs", "Prov", "Ecclesiastes", "Ecc",
+    "Job", "Jup", "Jb", "Psalms", "Psalm", "Psa", "Proverbs", "Prov", "Ecclesiastes", "Ecc",
     "Song of Solomon", "Song", "Isaiah", "Isa", "Jeremiah", "Jer",
     "Lamentations", "Lam", "Ezekiel", "Eze", "Daniel", "Dan",
     "Hosea", "Hos", "Joel", "Amos", "Obadiah", "Oba", "Jonah", "Jon",
@@ -31,31 +31,70 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
     "1 Timothy", "1 Tim", "2 Timothy", "2 Tim",
     "Titus", "Philemon", "Phlm", "Hebrews", "Heb", "James", "Jas",
     "1 Peter", "1 Pet", "2 Peter", "2 Pet",
-    "1 John", "2 John", "3 John", "Jude", "Revelation", "Rev"
+    "1 John", "2 John", "3 John", "Jude", "Revelation", "Revelations", "Rev"
 };
 
 static std::string NormalizeSpokenNumbers(const std::string& t) {
-    static const std::pair<std::string,std::string> nums[] = {
-        {"one","1"},{"two","2"},{"three","3"},{"four","4"},{"five","5"},
-        {"six","6"},{"seven","7"},{"eight","8"},{"nine","9"},{"ten","10"},
-        {"eleven","11"},{"twelve","12"},{"thirteen","13"},{"fourteen","14"},
-        {"fifteen","15"},{"sixteen","16"},{"seventeen","17"},{"eighteen","18"},
-        {"nineteen","19"},{"twenty","20"},{"thirty","30"},
-    };
     std::string out = t;
-    for (auto& [word, digit] : nums) {
-        std::regex re("\\b" + word + "\\b", std::regex::icase);
-        out = std::regex_replace(out, re, digit);
+
+    // 1. Tag "hundreds" so we can collapse them mathematically later.
+    // Maps "one hundred and" or "a hundred" to a temporary "100and " tag.
+    static const std::regex re_hund_and("\\b(?:one|a)\\s+hundred\\s+and\\b", std::regex::icase);
+    static const std::regex re_hund("\\b(?:one|a)\\s+hundred\\b", std::regex::icase);
+    out = std::regex_replace(out, re_hund_and, "100and ");
+    out = std::regex_replace(out, re_hund, "100and ");
+
+    // 2. Compile 1-99 regexes ONLY ONCE for a massive CPU performance gain
+    static const std::vector<std::pair<std::regex, std::string>> num_regexes = []() {
+        std::vector<std::pair<std::regex, std::string>> res;
+        const std::pair<std::string, std::string> nums[] = {
+            // 20-99 compounds
+            {"twenty one","21"},{"twenty two","22"},{"twenty three","23"},{"twenty four","24"},{"twenty five","25"},{"twenty six","26"},{"twenty seven","27"},{"twenty eight","28"},{"twenty nine","29"},
+            {"thirty one","31"},{"thirty two","32"},{"thirty three","33"},{"thirty four","34"},{"thirty five","35"},{"thirty six","36"},{"thirty seven","37"},{"thirty eight","38"},{"thirty nine","39"},
+            {"forty one","41"},{"forty two","42"},{"forty three","43"},{"forty four","44"},{"forty five","45"},{"forty six","46"},{"forty seven","47"},{"forty eight","48"},{"forty nine","49"},
+            {"fifty one","51"},{"fifty two","52"},{"fifty three","53"},{"fifty four","54"},{"fifty five","55"},{"fifty six","56"},{"fifty seven","57"},{"fifty eight","58"},{"fifty nine","59"},
+            {"sixty one","61"},{"sixty two","62"},{"sixty three","63"},{"sixty four","64"},{"sixty five","65"},{"sixty six","66"},{"sixty seven","67"},{"sixty eight","68"},{"sixty nine","69"},
+            {"seventy one","71"},{"seventy two","72"},{"seventy three","73"},{"seventy four","74"},{"seventy five","75"},{"seventy six","76"},{"seventy seven","77"},{"seventy eight","78"},{"seventy nine","79"},
+            {"eighty one","81"},{"eighty two","82"},{"eighty three","83"},{"eighty four","84"},{"eighty five","85"},{"eighty six","86"},{"eighty seven","87"},{"eighty eight","88"},{"eighty nine","89"},
+            {"ninety one","91"},{"ninety two","92"},{"ninety three","93"},{"ninety four","94"},{"ninety five","95"},{"ninety six","96"},{"ninety seven","97"},{"ninety eight","98"},{"ninety nine","99"},
+            // Tens
+            {"twenty","20"},{"thirty","30"},{"forty","40"},{"fifty","50"},{"sixty","60"},{"seventy","70"},{"eighty","80"},{"ninety","90"},
+            // Teens and singles
+            {"eleven","11"},{"twelve","12"},{"thirteen","13"},{"fourteen","14"},{"fifteen","15"},{"sixteen","16"},{"seventeen","17"},{"eighteen","18"},{"nineteen","19"},{"ten","10"},
+            {"one","1"},{"two","2"},{"three","3"},{"four","4"},{"five","5"},{"six","6"},{"seven","7"},{"eight","8"},{"nine","9"}
+        };
+        for (const auto& p : nums) {
+            res.push_back({std::regex("\\b" + p.first + "\\b", std::regex::icase), p.second});
+        }
+        return res;
+    }();
+
+    // Apply the 1-99 mappings
+    for (const auto& p : num_regexes) {
+        out = std::regex_replace(out, p.first, p.second);
     }
+
+    // 3. Collapse the "hundreds" tags with the newly parsed digits
+    // e.g., "100and 76" -> "176"
+    static const std::regex re_h2("\\b100and\\s+(\\d{2})\\b", std::regex::icase);
+    out = std::regex_replace(out, re_h2, "1$1");
+    
+    // e.g., "100and 5" -> "105"
+    static const std::regex re_h1("\\b100and\\s+(\\d{1})\\b", std::regex::icase);
+    out = std::regex_replace(out, re_h1, "10$1");
+    
+    // Leftovers (e.g., "100and verse 5" -> "100 verse 5")
+    static const std::regex re_h0("\\b100and\\b", std::regex::icase);
+    out = std::regex_replace(out, re_h0, "100");
+
     return out;
 }
-
 HomeInRefParser::HomeInRefParser() {
     try {
         standard_ref_regex = std::regex(
             R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+(?:\s+of\s+[a-zA-Z]+)?)\s*)"
             R"((?:chapter\s+)?(\d+)\s*)"
-            R"((?::|,|verse\s+|\s)\s*)"      // added comma + bare space
+            R"((?::|\.|,|verse\s+|\s)\s*)"      // Added \. to catch "2.1" formatting
             R"((\d+)(?:\s*[-–]\s*(\d+))?\b)",
             std::regex_constants::icase
         );
