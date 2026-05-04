@@ -101,6 +101,9 @@ void HomeInSTTEngine::RunLoop() {
         if (!running) break;
 
         if (is_paused) {
+            std::vector<float> dump;
+            audio->GetSamples(dump, true); 
+            
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
@@ -114,10 +117,9 @@ void HomeInSTTEngine::RunLoop() {
         pcmf32.insert(pcmf32.end(), latest_samples.begin(), latest_samples.end());
 
         // Whisper tiny.en needs minimum 1s for reliable output.
-        // 3s gives enough context for full phrases like "Mark chapter 5 verse 1".
-        static constexpr int kWindowSamples  = WHISPER_SAMPLE_RATE * 3;   // 48,000 = 3s
-        static constexpr int kOverlapSamples = WHISPER_SAMPLE_RATE / 2;   // 8,000  = 0.5s
-        static constexpr int kMinSamples     = WHISPER_SAMPLE_RATE * 1;   // 16,000 = 1s
+        static constexpr int kWindowSamples  = WHISPER_SAMPLE_RATE * 3;   // 3s window
+        static constexpr int kOverlapSamples = WHISPER_SAMPLE_RATE / 2;   // 0.5s overlap
+        static constexpr int kMinSamples     = WHISPER_SAMPLE_RATE * 1;   // 1s minimum
 
         if ((int)pcmf32.size() < kMinSamples) continue;
 
@@ -129,26 +131,39 @@ void HomeInSTTEngine::RunLoop() {
         }
 
         // Secondary VAD: Whisper is prone to hallucinations on silence.
-       float sum = 0.0f;
+        float sum = 0.0f;
         for (float s : pcm_window) sum += s * s;
         float rms = std::sqrtf(sum / static_cast<float>(pcm_window.size()));
         
-        static constexpr float kVadThreshold = 0.002f;
+        // FIX: Lowered threshold for soundboard audio
+        static constexpr float kVadThreshold = 0.0005f; 
+        
+        // Static counter to track how long they have been silent
+        static int consecutive_silent_frames = 0;
+
         if (rms < kVadThreshold) {
-            // SILENCE DETECTED: Flush the last spoken phrase as a FINAL output
-            if (!last_emitted_text.empty()) {
-                if (on_transcript) on_transcript(last_emitted_text, false);
-                last_emitted_text.clear();
+            consecutive_silent_frames++;
+            
+            // Wait roughly 1.5 seconds (about 6-7 frames of our 250ms chunks) before flushing
+            if (consecutive_silent_frames > 6) {
+                if (!last_emitted_text.empty()) {
+                    // Flush as FINAL to trigger the queue/detection
+                    if (on_transcript) on_transcript(last_emitted_text, false);
+                    last_emitted_text.clear();
+                }
+                pcmf32.clear(); 
             }
-            pcmf32.clear(); // WIPE BUFFER to prevent massive silence buildup
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
+        } else {
+            // They are speaking! Reset the silence counter.
+            consecutive_silent_frames = 0;
         }
 
         auto t_start = std::chrono::high_resolution_clock::now();
         blog(LOG_INFO, "Whisper: Processing %d samples (RMS: %f)", (int)pcm_window.size(), rms);
         
-        // ADD THESE: Strict anti-hallucination parameters
+        // Strict anti-hallucination parameters
         wparams.no_speech_thold = 0.6f;
         wparams.entropy_thold = 2.4f;
 

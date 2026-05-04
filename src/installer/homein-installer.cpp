@@ -69,7 +69,7 @@ private:
         header_layout->addWidget(logoLabel);
 
         QVBoxLayout *title_v_layout = new QVBoxLayout();
-        titleLabel = new QLabel("Home Indeed Plugin Setup", this);
+        titleLabel = new QLabel("Home Indeed", this);
         titleLabel->setStyleSheet("font-size: 24px; font-weight: bold; color: #0078D7;");
         title_v_layout->addWidget(titleLabel);
 

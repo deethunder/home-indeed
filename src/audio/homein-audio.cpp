@@ -218,3 +218,11 @@ size_t HomeInAudioHandler::GetBufferedCount() const {
     std::lock_guard<std::mutex> lock(buffer_mutex);
     return pcm_buffer.size();
 }
+
+void HomeInAudioHandler::Clear() {
+    std::lock_guard<std::mutex> lock(buffer_mutex);
+    pcm_buffer.clear();
+    silent_frames = 0;
+    gate_open = true;
+    if (resampler) resampler->Reset();
+}

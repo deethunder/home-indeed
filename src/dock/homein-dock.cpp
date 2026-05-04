@@ -823,9 +823,16 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
         // Re-split current song if one is loaded
         if (!current_song.content.empty()) {
             QListWidgetItem dummy;
-            QVariant data;
-            data.setValue(current_song);
-            dummy.setData(Qt::UserRole, data);
+            
+            // FIX: Use QVariantMap here too!
+            QVariantMap songData;
+            songData["id"]      = current_song.id;
+            songData["title"]   = QString::fromStdString(current_song.title);
+            songData["artist"]  = QString::fromStdString(current_song.artist);
+            songData["content"] = QString::fromStdString(current_song.content);
+            songData["source"]  = QString::fromStdString(current_song.source);
+            dummy.setData(Qt::UserRole, songData);
+            
             OnSongSelected(&dummy);
         }
     });
@@ -909,12 +916,19 @@ void HomeInDock::AddToQueue() {
         text = transcript_view->toPlainText().split('\n').last();
 
     if (!text.isEmpty()) {
-        if (isLyrics && tabs_widget->currentIndex() == 2 && !current_song.content.empty()) {
+       if (isLyrics && tabs_widget->currentIndex() == 2 && !current_song.content.empty()) {
             // User wants the entire song in the queue
             QListWidgetItem* item = new QListWidgetItem(QString::fromStdString(current_song.title) + " (Full Song)", queue_list);
             item->setData(Qt::UserRole + 2, true);
-            QVariant data; data.setValue(current_song);
-            item->setData(Qt::UserRole, data);
+            
+            // FIX: Use QVariantMap here too!
+            QVariantMap songData;
+            songData["id"]      = current_song.id;
+            songData["title"]   = QString::fromStdString(current_song.title);
+            songData["artist"]  = QString::fromStdString(current_song.artist);
+            songData["content"] = QString::fromStdString(current_song.content);
+            songData["source"]  = QString::fromStdString(current_song.source);
+            item->setData(Qt::UserRole, songData);
         } else if (tabs_widget->currentIndex() == 1 && !current_chapter_verses.empty()) {
             // Handle Bible Range sequencing
             QString label = suggestion_label->text();
@@ -996,10 +1010,12 @@ void HomeInDock::UpdateOverlayFromSelection() {
                 b_item->setData(Qt::UserRole, QString::fromStdString(v.text));
             }
         } else if (isLyrics) {
-            // Lyrics: Show grouped lines (2 or 4)
-            SongLyric song = item->data(Qt::UserRole).value<SongLyric>();
-            QStringList lines = QString::fromStdString(song.content).split('\n', Qt::SkipEmptyParts);
+            QVariantMap songData = item->data(Qt::UserRole).toMap();
+            QString content = songData["content"].toString();
             
+            // Lyrics: Show grouped lines (2 or 4)
+            QStringList lines = content.split('\n', Qt::SkipEmptyParts);
+
             int perPage = lines_per_page_combo->currentData().toInt();
             if (perPage < 1) perPage = 2;
 
@@ -1086,6 +1102,9 @@ void HomeInDock::StartTranscription() {
     if (is_transcribing) return;
     is_transcribing = true;
     
+    GetAudioHandler()->Clear();
+    transcript_queue->Clear();
+
     QSettings settings("HomeIndeed", "Plugin");
     QString mode = settings.value("stt_mode", "auto").toString();
     QString key  = settings.value("deepgram_key", "").toString();
@@ -1157,6 +1176,9 @@ void HomeInDock::StopTranscription() {
         stt_provider.reset();
     }
     is_transcribing = false;
+
+    GetAudioHandler()->Clear();
+    transcript_queue->Clear(); 
 }
 
 void HomeInDock::OnImportEasyWorship() {
@@ -1386,32 +1408,122 @@ void HomeInDock::SetFocusMode(FocusMode mode) {
 void HomeInDock::CheckForLyrics(const std::string& text) {
     if (current_focus == FocusMode::Bible) return;
     if (!auto_search) return;
-    if (text.length() < 15) return;
+    if (text.length() < 15) return; // Need enough audio context to avoid false positives
 
-    lyrics_engine.Search(text, false, [this](const std::vector<SongLyric>& results) {
+    // Capture 'text' by value so it survives the async thread boundary
+    lyrics_engine.Search(text, false, [this, text](const std::vector<SongLyric>& results) {
         if (!results.empty()) {
-            QMetaObject::invokeMethod(this, [this, results]() {
+            QMetaObject::invokeMethod(this, [this, results, text]() {
                 const auto& s = results[0];
                 QString label = QString::fromStdString(s.title);
                 if (!s.artist.empty()) label += " - " + QString::fromStdString(s.artist);
                 label += " (AI Detected)";
 
-                // Check for duplicates
-                for(int i=0; i<queue_list->count(); ++i) {
-                    if(queue_list->item(i)->text().contains(QString::fromStdString(s.title))) return;
+                // 1. Anti-Spam Queueing
+                bool in_queue = false;
+                for(int i = 0; i < queue_list->count(); ++i) {
+                    if(queue_list->item(i)->text().contains(QString::fromStdString(s.title))) {
+                        in_queue = true; break;
+                    }
+                }
+                if (!in_queue) {
+                    QListWidgetItem* item = new QListWidgetItem(label, queue_list);
+                    item->setData(Qt::UserRole + 2, true); // Mark as Lyrics
+                    item->setIcon(HomeInIcon("music", 16));
+                    
+                    // FIX: Convert SongLyric to a standard QVariantMap so Qt doesn't crash
+                    QVariantMap songData;
+                    songData["id"]      = s.id;
+                    songData["title"]   = QString::fromStdString(s.title);
+                    songData["artist"]  = QString::fromStdString(s.artist);
+                    songData["content"] = QString::fromStdString(s.content);
+                    songData["source"]  = QString::fromStdString(s.source);
+                    
+                    item->setData(Qt::UserRole, songData);
+                    SaveQueue();
+                    blog(LOG_INFO, "HomeIndeed: Automatically queued detected song: %s", label.toUtf8().constData());
                 }
 
-                QListWidgetItem* item = new QListWidgetItem(label, queue_list);
-                item->setData(Qt::UserRole + 2, true); // Mark as Lyrics
-                item->setIcon(HomeInIcon("music", 16));
-                
-                QVariant data; data.setValue(s);
-                item->setData(Qt::UserRole, data);
-                
-                SaveQueue();
-                blog(LOG_INFO, "HomeIndeed: Automatically queued detected song: %s", label.toUtf8().constData());
-                
-                if (auto_switch_tabs) tabs_widget->setCurrentIndex(3); // Switch to Queue tab
+                // 2. LIVE LYRICS DISPLAY & TRACKING
+                if (auto_push || auto_switch_tabs) {
+                    // Split the song into chunks (2 or 4 lines per page)
+                    QString qContent = QString::fromStdString(s.content).replace("\r\n", "\n");
+                    QStringList all_lines = qContent.split("\n", Qt::SkipEmptyParts);
+                    
+                    QString best_chunk;
+                    int best_score = -1;
+                    int best_index = 0;
+                    int current_chunk_index = 0;
+                    
+                    QString spoken = QString::fromStdString(text).toLower();
+                    QString current_chunk_str;
+                    int line_count = 0;
+                    std::vector<QString> chunks;
+
+                    for (int i = 0; i < all_lines.size(); ++i) {
+                        if (!current_chunk_str.isEmpty()) current_chunk_str += "\n";
+                        current_chunk_str += all_lines[i].trimmed();
+                        line_count++;
+                        
+                        // Break into chunks based on settings
+                        if (line_count >= lines_per_page || i == all_lines.size() - 1) {
+                            chunks.push_back(current_chunk_str);
+                            
+                            // SCORE THIS CHUNK: How many words overlap with the spoken audio?
+                            QString chunk_lower = current_chunk_str.toLower();
+                            int score = 0;
+                            for (const QString& word : chunk_lower.split(QRegularExpression("\\W+"), Qt::SkipEmptyParts)) {
+                                if (word.length() > 3 && spoken.contains(word)) {
+                                    score++;
+                                }
+                            }
+
+                            if (score > best_score) {
+                                best_score = score;
+                                best_chunk = current_chunk_str;
+                                best_index = current_chunk_index;
+                            }
+
+                            current_chunk_str.clear();
+                            line_count = 0;
+                            current_chunk_index++;
+                        }
+                    }
+
+                    // If we found a matching stanza, push it live!
+                    if (best_score > 0 && !best_chunk.isEmpty()) {
+                        if (auto_push) {
+                            HomeInRenderer* r = GetActiveRenderer();
+                            if (r) {
+                                // The \x01 marker tells your renderer it is a Lyric, not a Bible Verse
+                                r->SetText("\x01" + best_chunk.toStdString());
+                            }
+                        }
+
+                        if (auto_switch_tabs) {
+                            // Load the song into the Lyrics tab so the media team can take over
+                            current_song = s;
+                            current_song_lines.clear();
+                            lyrics_verses_list->clear();
+                            
+                            for (const QString& c : chunks) {
+                                current_song_lines.push_back(c.toStdString());
+                                lyrics_verses_list->addItem(c);
+                            }
+                            
+                            // Highlight the active verse in the UI
+                            current_verse_index = best_index;
+                            lyrics_verses_list->setCurrentRow(best_index);
+                            
+                            QString info = QString::fromStdString(current_song.title);
+                            if (!current_song.artist.empty()) info += " (" + QString::fromStdString(current_song.artist) + ")";
+                            lyrics_suggestion_label->setText(info);
+                            
+                            // Jump to Lyrics Tab instead of Queue
+                            tabs_widget->setCurrentIndex(2); 
+                        }
+                    }
+                }
             }, Qt::QueuedConnection);
         }
     });
@@ -1615,9 +1727,14 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
             QListWidgetItem* item = new QListWidgetItem(label, lyrics_results_list);
             item->setIcon(HomeInIcon((s.source == "LRCLIB") ? "globe" : "book-open", 16));
             
-            QVariant data;
-            data.setValue(s);
-            item->setData(Qt::UserRole, data);
+            // FIX: Use QVariantMap so OnSongSelected can read it
+            QVariantMap songData;
+            songData["id"]      = s.id;
+            songData["title"]   = QString::fromStdString(s.title);
+            songData["artist"]  = QString::fromStdString(s.artist);
+            songData["content"] = QString::fromStdString(s.content);
+            songData["source"]  = QString::fromStdString(s.source);
+            item->setData(Qt::UserRole, songData);
         }
         lyrics_results_list->setVisible(true);
         if (!lyrics_search_input->text().isEmpty())
@@ -1628,9 +1745,17 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
         // Only one result, show it directly
         lyrics_results_list->setVisible(false);
         QListWidgetItem dummy;
-        QVariant data;
-        data.setValue(results[0]);
-        dummy.setData(Qt::UserRole, data);
+        
+        // FIX: Use QVariantMap for the dummy item
+        const auto& s = results[0];
+        QVariantMap songData;
+        songData["id"]      = s.id;
+        songData["title"]   = QString::fromStdString(s.title);
+        songData["artist"]  = QString::fromStdString(s.artist);
+        songData["content"] = QString::fromStdString(s.content);
+        songData["source"]  = QString::fromStdString(s.source);
+        dummy.setData(Qt::UserRole, songData);
+        
         OnSongSelected(&dummy);
     }
 }
@@ -1638,7 +1763,13 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
 void HomeInDock::OnSongSelected(QListWidgetItem* item) {
     if (!item) return;
     
-    current_song = item->data(Qt::UserRole).value<SongLyric>();
+    // FIX: Read from the QVariantMap
+    QVariantMap songData = item->data(Qt::UserRole).toMap();
+    current_song.id      = songData["id"].toInt();
+    current_song.title   = songData["title"].toString().toStdString();
+    current_song.artist  = songData["artist"].toString().toStdString();
+    current_song.content = songData["content"].toString().toStdString();
+    current_song.source  = songData["source"].toString().toStdString();
     
     // OPTIMIZATION: If content is empty (from browse metadata), fetch it now.
     if (current_song.content.empty()) {
@@ -1737,8 +1868,8 @@ void HomeInDock::OnManualEntry() {
 void HomeInDock::DetectionLoop() {
     std::string sentence_buffer;
     auto last_push_time = std::chrono::steady_clock::now();
-    static constexpr int kFlushWords    = 6;    // reduced from 15
-    static constexpr int kFlushIdleMs   = 800;  // reduced from 1500ms
+    static constexpr int kFlushWords    = 20;
+    static constexpr int kFlushIdleMs   = 1500;
 
     while (detection_running) {
         std::string chunk;
@@ -1777,6 +1908,23 @@ void HomeInDock::DetectionLoop() {
 
 void HomeInDock::RunDetection(const std::string& text) {
     if (text.empty()) return;
+
+    // --- NEW: VOICE CONTROLLED NAVIGATION ---
+    std::string lower_text = text;
+    std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
+    
+    if (lower_text.find("next verse") != std::string::npos || lower_text.find("verse after that") != std::string::npos) {
+        // Automatically click the 'Next' button in the UI
+        QMetaObject::invokeMethod(bible_next_btn, "click", Qt::QueuedConnection);
+        blog(LOG_INFO, "HomeIndeed: Voice Command triggered 'Next Verse'");
+        return; // Skip normal detection
+    }
+    if (lower_text.find("previous verse") != std::string::npos || lower_text.find("go back a verse") != std::string::npos) {
+        // Automatically click the 'Previous' button in the UI
+        QMetaObject::invokeMethod(bible_prev_btn, "click", Qt::QueuedConnection);
+        blog(LOG_INFO, "HomeIndeed: Voice Command triggered 'Previous Verse'");
+        return; // Skip normal detection
+    }
 
     // Layer 1 & 2: Direct reference regex
     std::vector<BibleRef> refs = ref_parser.Parse(text);
@@ -1857,7 +2005,7 @@ void HomeInDock::RunDetection(const std::string& text) {
     }
 
     // Layer 3: Fuzzy search if no direct match and text is substantial
-    if (!found && text.length() > 35) {
+    if (!found && text.length() > 25) { 
         std::vector<BibleVerse> fuzzy = bible_db.SearchVerses(text, 1);
         if (!fuzzy.empty()) {
             const auto& v = fuzzy[0];

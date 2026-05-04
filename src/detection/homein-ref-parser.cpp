@@ -15,8 +15,9 @@ static bool iequals(const std::string& a, const std::string& b) {
 static const std::unordered_set<std::string> BIBLE_BOOKS = {
     "Genesis", "Gen", "Exodus", "Exo", "Leviticus", "Lev", "Numbers", "Num",
     "Deuteronomy", "Deut", "Joshua", "Josh", "Judges", "Judg", "Ruth",
-    "1 Samuel", "2 Samuel", "1 Kings", "2 Kings",
-    "1 Chronicles", "2 Chronicles", "Ezra", "Nehemiah", "Esther",
+    "1 Samuel", "2 Samuel", "1 Kings", "2 Kings", "1 King", "2 King",
+    "1 Chronicles", "2 Chronicles", "1 Chronicle", "2 Chronicle",
+    "Ezra", "Nehemiah", "Esther",
     "Job", "Jup", "Jb", "Psalms", "Psalm", "Psa", "Proverbs", "Prov", "Ecclesiastes", "Ecc",
     "Song of Solomon", "Song", "Isaiah", "Isa", "Jeremiah", "Jer",
     "Lamentations", "Lam", "Ezekiel", "Eze", "Daniel", "Dan",
@@ -24,13 +25,13 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
     "Micah", "Mic", "Nahum", "Nah", "Habakkuk", "Hab",
     "Zephaniah", "Zep", "Haggai", "Hag", "Zechariah", "Zec",
     "Malachi", "Mal", "Matthew", "Matt", "Mark", "Luke", "John",
-    "Acts", "Romans", "Rom", "1 Corinthians", "1 Cor",
-    "2 Corinthians", "2 Cor", "Galatians", "Gal", "Ephesians", "Eph",
+    "Acts", "Romans", "Rom", "1 Corinthians", "2 Corinthians", "1 Cor", "2 Cor",
+    "Galatians", "Gal", "Ephesians", "Eph",
     "Philippians", "Phil", "Colossians", "Col",
-    "1 Thessalonians", "1 Thes", "2 Thessalonians", "2 Thes",
-    "1 Timothy", "1 Tim", "2 Timothy", "2 Tim",
+    "1 Thessalonians", "2 Thessalonians", "1 Thes", "2 Thes",
+    "1 Timothy", "2 Timothy", "1 Tim", "2 Tim",
     "Titus", "Philemon", "Phlm", "Hebrews", "Heb", "James", "Jas",
-    "1 Peter", "1 Pet", "2 Peter", "2 Pet",
+    "1 Peter", "2 Peter", "1 Pet", "2 Pet",
     "1 John", "2 John", "3 John", "Jude", "Revelation", "Revelations", "Rev"
 };
 
@@ -59,6 +60,8 @@ static std::string NormalizeSpokenNumbers(const std::string& t) {
             {"ninety one","91"},{"ninety two","92"},{"ninety three","93"},{"ninety four","94"},{"ninety five","95"},{"ninety six","96"},{"ninety seven","97"},{"ninety eight","98"},{"ninety nine","99"},
             // Tens
             {"twenty","20"},{"thirty","30"},{"forty","40"},{"fifty","50"},{"sixty","60"},{"seventy","70"},{"eighty","80"},{"ninety","90"},
+            // Ordinals for Book Names
+            {"first","1"},{"second","2"},{"third","3"},
             // Teens and singles
             {"eleven","11"},{"twelve","12"},{"thirteen","13"},{"fourteen","14"},{"fifteen","15"},{"sixteen","16"},{"seventeen","17"},{"eighteen","18"},{"nineteen","19"},{"ten","10"},
             {"one","1"},{"two","2"},{"three","3"},{"four","4"},{"five","5"},{"six","6"},{"seven","7"},{"eight","8"},{"nine","9"}
@@ -94,17 +97,16 @@ HomeInRefParser::HomeInRefParser() {
         standard_ref_regex = std::regex(
             R"(\b((?:[123](?:st|nd|rd|th)?\s*)?[a-zA-Z]+(?:\s+of\s+[a-zA-Z]+)?)\s*)"
             R"((?:chapter\s+)?(\d+)\s*)"
-            R"((?::|\.|,|verse\s+|\s)\s*)"      // Added \. to catch "2.1" formatting
-            R"((\d+)(?:\s*[-–]\s*(\d+))?\b)",
+            R"((?:\s*(?:from\s+)?verse\s+|\s*:\s*|\s*\.\s*|\s*,\s*|\s+))"
+            R"((\d+)(?:\s*(?:[-–]|through|to|and)\s*(\d+))?\b)",         
             std::regex_constants::icase
         );
 
         verse_only_regex = std::regex(
-            R"(\b(?:verse|v|vs|vrt|this\s+is|and\s+this\s+is|verses|section)\.?\s*(\d+)(?:\s*(?:-|–|to)\s*(\d+))?\b)",
+            R"(\b(?:chapter\s+(\d+)\s+)?(?:from\s+)?(?:verse|v|vs|vrt|this\s+is|and\s+this\s+is|verses|section)\.?\s*(\d+)(?:\s*(?:-|–|to|through|and)\s*(\d+))?\b)",
             std::regex_constants::icase
         );
     } catch (const std::regex_error&) {
-        // Fallback to simple regex
         standard_ref_regex = std::regex(".*", std::regex_constants::icase);
         verse_only_regex = std::regex(".*", std::regex_constants::icase);
     }
@@ -148,7 +150,7 @@ std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
         results.push_back(ref);
     }
 
-    // --- Layer 2: Contextual References (Implied Book/Chapter) ---
+   // --- Layer 2: Contextual References (Implied Book/Chapter) ---
     std::string current_book;
     int current_chapter;
     if (results.empty() && context && context->GetCurrent(current_book, current_chapter)) {
@@ -160,13 +162,20 @@ std::vector<BibleRef> HomeInRefParser::Parse(const std::string& text) {
             BibleRef ref;
             ref.original_text = match.str();
             ref.book          = current_book;
-            ref.chapter       = current_chapter;
-            ref.verse_start   = std::stoi(match[1].str());
-            ref.verse_end     = match[2].matched ? std::stoi(match[2].str()) : ref.verse_start;
+            
+            // If they said "Chapter 2 verse 30", update the context chapter!
+            if (match[1].matched) {
+                ref.chapter = std::stoi(match[1].str());
+                context->Update(current_book, ref.chapter); 
+            } else {
+                ref.chapter = current_chapter; // Use previously known chapter
+            }
+
+            ref.verse_start   = std::stoi(match[2].str());
+            ref.verse_end     = match[3].matched ? std::stoi(match[3].str()) : ref.verse_start;
             ref.confidence    = 0.80f;
             results.push_back(ref);
         }
     }
-
     return results;
 }

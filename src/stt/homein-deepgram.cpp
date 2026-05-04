@@ -127,6 +127,9 @@ void DeepgramSTTProvider::RunLoop() {
 
     while (running) {
         if (is_paused) {
+            std::vector<float> dump;
+            audio->GetSamples(dump, true);
+
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             continue;
         }

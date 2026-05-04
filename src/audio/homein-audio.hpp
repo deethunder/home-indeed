@@ -21,6 +21,7 @@ public:
     void ProcessAudio(struct obs_audio_data *audio);
     void GetSamples(std::vector<float>& out_samples, bool clear = true);
     size_t GetBufferedCount() const;
+    void Clear();
     
     std::condition_variable& GetNotify() const { return audio_cv; }
     std::mutex& GetNotifyMutex() const { return audio_mtx; }
