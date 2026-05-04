@@ -10,6 +10,7 @@
 !/tools
 !/tests
 !/vendor
+!/Home-Indeed-Waitlist
 !.clang-format
 !.gersemirc
 !.gitignore
@@ -34,3 +35,6 @@
 *.db
 !data/homein-bible.db
 !data/homein-lyrics.db
+
+#Ignore the launch.html
+launch.html

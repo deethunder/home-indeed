@@ -661,7 +661,7 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     QPushButton *get_key_btn = new QPushButton("Get free key at deepgram.com", parent);
     get_key_btn->setStyleSheet("color: #8ab4f8; text-decoration: underline; background: none; border: none; text-align: left;");
     connect(get_key_btn, &QPushButton::clicked, []() {
-        QDesktopServices::openUrl(QUrl("https://deepgram.com/signup"));
+        QDesktopServices::openUrl(QUrl("https://deepgram.com/"));
     });
     adv_layout->addWidget(get_key_btn);
 
@@ -1123,9 +1123,9 @@ void HomeInDock::StartTranscription() {
         stt_provider = std::make_unique<HomeInSTTEngine>();
         
         const char* model_names[] = {
-            "models/ggml-tiny.en.bin",
-            "models/ggml-base.en.bin",
-            "models/ggml-small.en.bin"
+            "models/ggml-base.en.bin",  // Absolute priority for high accuracy
+            "models/ggml-small.en.bin",
+            "models/ggml-tiny.en.bin"   // Last resort fallback
         };
         char* model_path = nullptr;
 
