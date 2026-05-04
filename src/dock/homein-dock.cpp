@@ -1384,8 +1384,8 @@ void HomeInDock::AppendTranscript(const std::string& text) {
         last_word_field->setText(QString::fromStdString(text));
 
     // PHASE 1: Actions disabled to focus on transcription accuracy first.
-    // CheckForReferences(text);
-    // CheckForLyrics(text);
+    CheckForReferences(text);
+    CheckForLyrics(text);
 }
 
 void HomeInDock::SetFocusMode(FocusMode mode) {
@@ -1825,13 +1825,42 @@ void HomeInDock::RunDetection(const std::string& text) {
                         bibleData["translation"] = QString::fromStdString(v.translation_abbr);
                         item->setData(Qt::UserRole, bibleData);
                         
-                        SaveQueue();
-                        blog(LOG_INFO, "HomeIndeed: Automatically queued %s", label.toUtf8().constData());
+                    SaveQueue();
+                    blog(LOG_INFO, "HomeIndeed: Automatically queued %s", label.toUtf8().constData());
+                    
+                    // AUTOMATIC PUSH
+                    if (auto_push) {
+                        HomeInRenderer* r = GetActiveRenderer();
+                        if (r) {
+                            r->SetText(label.toStdString() + "\n" + std::to_string(v.verse) + " " + v.text);
+                        }
                     }
-                }, Qt::QueuedConnection);
-            }
+
+                    // Update Bible Tab UI if auto-switch is on
+                    if (auto_switch_tabs) {
+                        current_search_book = v.book_name;
+                        current_chapter_verses = bible_db.GetChapterVerses(v.book_name, v.chapter, CurrentTranslation());
+                        current_bible_verse_index = 0;
+                        for(size_t i=0; i<current_chapter_verses.size(); ++i) {
+                            if(current_chapter_verses[i].verse == v.verse) {
+                                current_bible_verse_index = (int)i; break;
+                            }
+                        }
+                        
+                        tabs_widget->setCurrentIndex(1); // Bible Tab
+                        bible_grid_container->setVisible(false);
+                        bible_verses_list->clear();
+                        for (const auto& bv : current_chapter_verses) {
+                            bible_verses_list->addItem(QString::number(bv.verse) + " " + QString::fromStdString(bv.text));
+                        }
+                        bible_verses_list->setVisible(true);
+                        bible_verses_list->setCurrentRow(current_bible_verse_index);
+                    }
+                }
+            }, Qt::QueuedConnection);
         }
     }
+}
 
     // Layer 3: Fuzzy search if no direct match and text is substantial
     if (!found && text.length() > 35) {

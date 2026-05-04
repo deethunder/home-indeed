@@ -17,8 +17,8 @@ static const std::unordered_set<std::string> BIBLE_BOOKS = {
     "Deuteronomy", "Deut", "Joshua", "Josh", "Judges", "Judg", "Ruth",
     "1 Samuel", "2 Samuel", "1 Kings", "2 Kings",
     "1 Chronicles", "2 Chronicles", "Ezra", "Nehemiah", "Esther",
-    "Job", "Psalms", "Psa", "Proverbs", "Prov", "Ecclesiastes", "Ecc",
-    "Song of Solomon", "Isaiah", "Isa", "Jeremiah", "Jer",
+    "Job", "Jup", "Jb", "Psalms", "Psa", "Proverbs", "Prov", "Ecclesiastes", "Ecc",
+    "Song of Solomon", "Song", "Isaiah", "Isa", "Jeremiah", "Jer",
     "Lamentations", "Lam", "Ezekiel", "Eze", "Daniel", "Dan",
     "Hosea", "Hos", "Joel", "Amos", "Obadiah", "Oba", "Jonah", "Jon",
     "Micah", "Mic", "Nahum", "Nah", "Habakkuk", "Hab",
@@ -61,10 +61,10 @@ HomeInRefParser::HomeInRefParser() {
         );
 
         verse_only_regex = std::regex(
-            R"(\b(?:verse|v|vs|vrt)\.?\s*(\d+)(?:\s*-\s*(\d+))?\b)",
+            R"(\b(?:verse|v|vs|vrt|this\s+is|and\s+this\s+is|verses|section)\.?\s*(\d+)(?:\s*(?:-|–|to)\s*(\d+))?\b)",
             std::regex_constants::icase
         );
-    } catch (const std::regex_error& e) {
+    } catch (const std::regex_error&) {
         // Fallback to simple regex
         standard_ref_regex = std::regex(".*", std::regex_constants::icase);
         verse_only_regex = std::regex(".*", std::regex_constants::icase);

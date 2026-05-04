@@ -128,8 +128,25 @@ void HomeInSTTEngine::RunLoop() {
                 pcm_window.begin() + ((int)pcm_window.size() - kWindowSamples));
         }
 
+        // Secondary VAD: Whisper is prone to hallucinations on silence.
+        float sum = 0.0f;
+        for (float s : pcm_window) sum += s * s;
+        float rms = std::sqrtf(sum / static_cast<float>(pcm_window.size()));
+        
+        static constexpr float kVadThreshold = 0.002f;
+        if (rms < kVadThreshold) {
+            pcmf32.clear(); // ADD THIS: Prevent massive silence buildup!
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
         auto t_start = std::chrono::high_resolution_clock::now();
-        blog(LOG_INFO, "Whisper: Processing %d samples", (int)pcm_window.size());
+        blog(LOG_INFO, "Whisper: Processing %d samples (RMS: %f)", (int)pcm_window.size(), rms);
+        
+        // ADD THESE: Strict anti-hallucination parameters
+        wparams.no_speech_thold = 0.6f;
+        wparams.entropy_thold = 2.4f;
+
         if (whisper_full(ctx, wparams, pcm_window.data(), (int)pcm_window.size()) != 0) {
             blog(LOG_ERROR, "Whisper: Full processing failed");
             continue;

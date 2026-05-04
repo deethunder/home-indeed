@@ -46,14 +46,10 @@ void DeepgramSTTProvider::Stop() {
 
 void DeepgramSTTProvider::RunLoop() {
     hSession = WinHttpOpen(L"HomeIndeed/1.0", 
-                           WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, 
+                           WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, // Changed from AUTOMATIC_PROXY
                            WINHTTP_NO_PROXY_NAME, 
                            WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) return;
-
-    // Enable automatic proxy detection and set timeouts
-    DWORD option = WINHTTP_AUTOPROXY_AUTO_DETECT;
-    WinHttpSetOption(hSession, WINHTTP_OPTION_ENABLE_FEATURE, &option, sizeof(option));
 
     DWORD timeout = 10000; // 10 seconds
     WinHttpSetOption(hSession, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
