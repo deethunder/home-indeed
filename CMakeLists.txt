@@ -11,6 +11,14 @@ set(ENABLE_FRONTEND_API ON CACHE BOOL "Force Enable Frontend API" FORCE)
 set(OBS_WARNINGS_AS_ERRORS OFF CACHE BOOL "Force Disable Warnings as Errors" FORCE)
 set(CMAKE_COMPILE_WARNING_AS_ERROR OFF CACHE BOOL "Force Disable Warnings as Errors" FORCE)
 
+set(CMAKE_XCODE_ATTRIBUTE_CLANG_ENABLE_EXPLICIT_MODULES "NO")
+
+if(APPLE)
+    add_compile_options(-Wno-error -Wno-shorten-64-to-32)
+elseif(UNIX AND NOT APPLE)
+    add_compile_options(-Wno-error)
+endif()
+
 if(NOT MSVC)
     add_compile_options(-Wno-error -Wno-shorten-64-to-32)
 endif()

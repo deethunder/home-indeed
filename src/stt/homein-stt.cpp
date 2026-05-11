@@ -139,7 +139,7 @@ void HomeInSTTEngine::RunLoop() {
             // Otherwise, check the volume of the last 1 second of the buffer
             float sum = 0.0f;
             int vad_start = std::max(0, (int)pcm_window.size() - WHISPER_SAMPLE_RATE);
-            for (int i = vad_start; i < pcm_window.size(); ++i) {
+            for (int i = vad_start; i < (int)pcm_window.size(); ++i) {
                 sum += pcm_window[i] * pcm_window[i];
             }
             rms = std::sqrtf(sum / static_cast<float>(pcm_window.size() - vad_start));
