@@ -6,6 +6,15 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCO
 
 project(${_name} VERSION ${_version})
 
+set(ENABLE_QT ON CACHE BOOL "Force Enable Qt" FORCE)
+set(ENABLE_FRONTEND_API ON CACHE BOOL "Force Enable Frontend API" FORCE)
+set(OBS_WARNINGS_AS_ERRORS OFF CACHE BOOL "Force Disable Warnings as Errors" FORCE)
+set(CMAKE_COMPILE_WARNING_AS_ERROR OFF CACHE BOOL "Force Disable Warnings as Errors" FORCE)
+
+if(NOT MSVC)
+    add_compile_options(-Wno-error -Wno-shorten-64-to-32)
+endif()
+
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" ON)
 

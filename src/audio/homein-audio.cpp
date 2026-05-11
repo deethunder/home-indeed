@@ -4,8 +4,8 @@
 #include <memory>
 #include <mutex>
 
-static std::unique_ptr<HomeInAudioHandler> g_audio_handler = nullptr;
-static std::mutex g_handler_mutex;
+std::unique_ptr<HomeInAudioHandler> g_audio_handler = nullptr;
+std::mutex g_handler_mutex;
 
 void on_source_audio_capture(void* data, obs_source_t* source, const struct audio_data* audio, bool muted) {
     UNUSED_PARAMETER(source);
@@ -34,12 +34,12 @@ HomeInAudioHandler* GetAudioHandler() {
 }
 
 // OBS Filter Callbacks
-static const char* homein_audio_filter_get_name(void* unused) {
+const char* homein_audio_filter_get_name(void* unused) {
     UNUSED_PARAMETER(unused);
     return obs_module_text("Home Indeed Audio Tap");
 }
 
-static obs_properties_t* homein_audio_filter_properties(void* data) {
+obs_properties_t* homein_audio_filter_properties(void* data) {
     UNUSED_PARAMETER(data);
     obs_properties_t* props = obs_properties_create();
     obs_properties_add_text(props, "status", "Status: 🟢 Connected & Listening", OBS_TEXT_DEFAULT);
@@ -55,15 +55,14 @@ void* homein_audio_filter_create(obs_data_t* settings, obs_source_t* context) {
     handler->using_filter_path = true;
     return handler;
 }
-
-static void homein_audio_filter_destroy(void* data) {
+void homein_audio_filter_destroy(void* data) {
     HomeInAudioHandler* handler = static_cast<HomeInAudioHandler*>(data);
     if (handler) {
         handler->using_filter_path = false;
     }
 }
 
-static struct obs_audio_data* homein_audio_filter_audio(void* data, struct obs_audio_data* audio) {
+struct obs_audio_data* homein_audio_filter_audio(void* data, struct obs_audio_data* audio) {
     HomeInAudioHandler* handler = static_cast<HomeInAudioHandler*>(data);
     if (handler) {
         handler->ProcessAudio(audio);
@@ -149,7 +148,7 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
             if (active_channels > 0) mono_sample /= (float)active_channels;
             
             // Diagnostic: Log channel count once
-            static bool logged_channels = false;
+            bool logged_channels = false;
             if (!logged_channels && active_channels > 0) {
                 blog(LOG_INFO, "HomeIndeed Audio Tap: Detected %d active channels", active_channels);
                 logged_channels = true;
@@ -170,7 +169,7 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
         }
 
         // DEBUG: Log activity if we see ANY signal
-        static int log_counter = 0;
+        int log_counter = 0;
         if (max_peak > 0.0001f && log_counter++ % 100 == 0) {
             blog(LOG_INFO, "HomeIndeed Audio: Peak=%f (VAD Threshold=%f, Gate=%s)", 
                  max_peak, VAD_THRESHOLD, gate_open ? "OPEN" : "CLOSED");
