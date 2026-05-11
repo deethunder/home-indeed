@@ -75,6 +75,11 @@ public:
     std::vector<BibleVerse> SearchVerses(const std::string& query, int limit = 5);
 
     /**
+     * @brief Advanced 3-layer search using BM25 ranking for implied quotes.
+     */
+    std::vector<BibleVerse> FuzzySearch(const std::string& text, int limit = 3);
+
+    /**
      * @brief Returns a list of all available translations in the database.
      */
     std::vector<BibleTranslation> GetTranslations();

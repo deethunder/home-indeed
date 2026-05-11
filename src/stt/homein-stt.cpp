@@ -2,6 +2,9 @@
 #include "../audio/homein-audio.hpp"
 #include <obs-module.h>
 #include <chrono>
+#include <thread>
+#include <cctype>
+#include <algorithm>
 
 HomeInSTTEngine::HomeInSTTEngine() {
 }
@@ -26,19 +29,19 @@ bool HomeInSTTEngine::Initialize(const std::string& model_path) {
 
     ctx = whisper_init_from_file_with_params(model_path.c_str(), cparams);
     if (!ctx) {
-        blog(LOG_ERROR, "Failed to initialize Whisper context from %s", model_path.c_str());
+        blog(LOG_ERROR, "Whisper: Failed to initialize context from %s", model_path.c_str());
         return false;
     }
 
+    blog(LOG_INFO, "Whisper: Context initialized successfully from %s", model_path.c_str());
     blog(LOG_INFO, "Whisper STT Engine initialized successfully with model: %s", model_path.c_str());
     return true;
 }
 
 void HomeInSTTEngine::Start(TranscriptCallback callback) {
-    if (running) return;
-
+    if (running.exchange(true)) return;
     on_transcript = callback;
-    running = true;
+    blog(LOG_INFO, "HomeIndeed: Whisper (Local) STT Started");
     worker_thread = std::thread(&HomeInSTTEngine::RunLoop, this);
 }
 
@@ -58,112 +61,142 @@ void HomeInSTTEngine::RunLoop() {
     }
 
     std::vector<float> pcmf32;
+    std::vector<float> pcm_window;
 
     whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    wparams.n_threads        = n_threads;
-    wparams.print_realtime   = false;
-    wparams.print_progress   = false;
-    wparams.language         = "en";
     wparams.translate        = false;
+    wparams.print_special    = false;
+    wparams.print_progress   = false;
+    wparams.print_realtime   = false;
+    wparams.print_timestamps = true;
+    
+    // Performance: Fast Greedy search (Beam=1) is 2-3x faster than Beam Search
+    wparams.strategy = WHISPER_SAMPLING_GREEDY;
+    
+    // Fix 4 — Optimized Threading
+    wparams.n_threads = std::max(1,
+        std::min(4, (int)std::thread::hardware_concurrency() - 1));
 
-    // FIX #2a: no_context = true prevents Whisper from carrying over stale
-    // context between chunks, which caused hallucination loops where the same
-    // phrase repeated endlessly and the de-stutter filter then blocked everything.
-    wparams.no_context       = true;
-
+    wparams.language   = "en";    // Skip language detection — saves 200-400ms per chunk
+    wparams.translate  = false;   // Never translate — raw English transcription only
+    wparams.no_context = true;    // Prevents stale context hallucinations between chunks
     wparams.single_segment   = true;
     wparams.suppress_blank   = true;
     wparams.suppress_nst     = true;
 
     // Church/worship vocabulary bias
     wparams.initial_prompt =
-        "Bible scripture, worship, church service, "
-        "Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, Ruth, "
-        "Samuel, Kings, Chronicles, Psalms, Proverbs, Isaiah, Jeremiah, Ezekiel, Daniel, "
-        "Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, Ephesians, "
-        "Philippians, Colossians, Thessalonians, Timothy, Hebrews, James, Peter, "
-        "Revelation, hallelujah, amen, praise, worship, glory, grace, salvation";
+        "Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, Ruth, Samuel, Kings, Chronicles, Ezra, Nehemiah, Esther, Job, Psalms, Proverbs, Ecclesiastes, Song of Solomon, Isaiah, Jeremiah, Lamentations, Ezekiel, Daniel, Hosea, Joel, Amos, Obadiah, Jonah, Micah, Nahum, Habakkuk, Zephaniah, Haggai, Zechariah, Malachi, Matthew, Mark, Luke, John, Acts, Romans, Corinthians, Galatians, Ephesians, Philippians, Colossians, Thessalonians, Timothy, Titus, Philemon, Hebrews, James, Peter, Jude, Revelation. "
+        "John 3:16. Mark 5:1. Romans 8:28. Psalms 23:1. Hallelujah, amen, praise, worship, glory.";
 
     while (running) {
+        // --- EFFICIENCY UPGRADE: Wait for data notification ---
+        {
+            std::unique_lock<std::mutex> lock(audio->GetNotifyMutex());
+            audio->GetNotify().wait_for(lock, std::chrono::milliseconds(200), [this, audio] {
+                return !running || audio->GetBufferedCount() >= WHISPER_SAMPLE_RATE / 4; // Wake every 250ms
+            });
+        }
+
+        if (!running) break;
+
         if (is_paused) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            std::vector<float> dump;
+            audio->GetSamples(dump, true); 
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
 
-        // Wait for at least 0.5 s of audio before processing
-        if (audio->GetBufferedCount() < WHISPER_SAMPLE_RATE / 2) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
-        }
-
+        // --- LOW-LATENCY CHUNKING ---
         std::vector<float> latest_samples;
-        audio->GetSamples(latest_samples, true);
+        audio->GetSamples(latest_samples, true); 
+        
+        if (latest_samples.empty() && pcmf32.empty()) continue;
 
         pcmf32.insert(pcmf32.end(), latest_samples.begin(), latest_samples.end());
 
-        // FIX #4: Reduced sliding window from 3 s to 2 s.
-        // Processing 3 s every cycle with tiny.en took 600-900 ms on CPU,
-        // causing the perceived "very long before it transcribes" problem.
-        const int context_size = WHISPER_SAMPLE_RATE * 2;
-        if ((int)pcmf32.size() > context_size) {
-            pcmf32.erase(pcmf32.begin(),
-                         pcmf32.begin() + ((int)pcmf32.size() - context_size));
+        // 15-second expanding window for full context
+        static constexpr int kMaxSamples = WHISPER_SAMPLE_RATE * 15;  
+        static constexpr int kMinSamples = WHISPER_SAMPLE_RATE * 1;   
+
+        if ((int)pcmf32.size() < kMinSamples) continue;
+
+        // Prevent buffer from growing infinitely (cap at 15s)
+        if ((int)pcmf32.size() > kMaxSamples) {
+            pcmf32.erase(pcmf32.begin(), pcmf32.begin() + ((int)pcmf32.size() - kMaxSamples));
         }
 
-        // FIX #2b: VAD threshold lowered from 0.025 to 0.008.
-        // 0.025 was rejecting normal speaking volume captured through a mixer
-        // or capture card at moderate gain — audio that the level meter showed
-        // as active but Whisper never saw.
-        float sum = 0;
-        for (float s : latest_samples) sum += s * s;
-        float rms = sqrtf(sum / (float)latest_samples.size());
+        pcm_window = pcmf32;
 
-        if (rms < 0.008f) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        // Stable VAD: Check for actual new audio
+        float rms = 0.0f;
+        
+        if (latest_samples.empty()) {
+            // THE FIX: If the OBS Gate is closed and sends no new audio, force silence!
+            rms = 0.0f; 
+        } else {
+            // Otherwise, check the volume of the last 1 second of the buffer
+            float sum = 0.0f;
+            int vad_start = std::max(0, (int)pcm_window.size() - WHISPER_SAMPLE_RATE);
+            for (int i = vad_start; i < pcm_window.size(); ++i) {
+                sum += pcm_window[i] * pcm_window[i];
+            }
+            rms = std::sqrtf(sum / static_cast<float>(pcm_window.size() - vad_start));
+        }
+        
+        // Back to the stable develop branch threshold
+        static constexpr float kVadThreshold = 0.001f; 
+        static int consecutive_silent_frames = 0;
+        bool should_flush = false;
+
+        // If silent, flag for flushing, but DO NOT skip processing this frame!
+        if (rms < kVadThreshold) {
+            consecutive_silent_frames++;
+            if (consecutive_silent_frames > 6) { // ~1.5s of silence
+                should_flush = true;
+            }
+        } else {
+            consecutive_silent_frames = 0;
+        }
+
+        auto t_start = std::chrono::high_resolution_clock::now();
+        // blog(LOG_INFO, "Whisper: Processing %d samples (RMS: %f)", (int)pcm_window.size(), rms);
+        
+        // Strict anti-hallucination parameters
+        wparams.no_speech_thold = 0.6f;
+        wparams.entropy_thold = 2.4f;
+
+        if (whisper_full(ctx, wparams, pcm_window.data(), (int)pcm_window.size()) != 0) {
+            blog(LOG_ERROR, "Whisper: Full processing failed");
             continue;
         }
 
-        if (whisper_full(ctx, wparams, pcmf32.data(), (int)pcmf32.size()) != 0) {
-            blog(LOG_ERROR, "Whisper failed to process audio");
-            continue;
-        }
-
+        // Output assembly
         const int n_segments = whisper_full_n_segments(ctx);
         std::string full_text;
         for (int i = 0; i < n_segments; ++i) {
             const char* text = whisper_full_get_segment_text(ctx, i);
-            std::string segment = text;
-
-            // Skip non-speech meta-tokens
-            if (segment.find("[BLANK_AUDIO]") != std::string::npos ||
-                segment.find("[MUSIC]")       != std::string::npos ||
-                segment.find("[LAUGHTER]")    != std::string::npos ||
-                segment.find("(noise)")       != std::string::npos) {
-                continue;
-            }
-            full_text += segment;
+            full_text += text;
         }
 
         if (!full_text.empty() && on_transcript) {
-            // Trim whitespace
             full_text.erase(0, full_text.find_first_not_of(" \t\n\r"));
             auto last = full_text.find_last_not_of(" \t\n\r");
             if (last != std::string::npos) full_text.erase(last + 1);
 
-            // FIX #2c: De-stutter threshold raised from 15 to 40 chars.
-            // "John 3:16" is only 10 chars — the old threshold of 15 silently
-            // dropped every short Bible reference after the first occurrence.
-            if (full_text == last_emitted_text && full_text.length() < 40) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                continue;
-            }
-
-            if (!full_text.empty()) {
+            if (full_text.length() > 2 && full_text != last_emitted_text) {
                 last_emitted_text = full_text;
-                on_transcript(full_text, false);
+                // If it's a flush, emit as FINAL (false). Otherwise, emit as PARTIAL (true).
+                on_transcript(full_text, !should_flush); 
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        // Safely wipe the buffer AFTER Whisper has outputted the final word
+        if (should_flush) {
+            pcmf32.clear();
+            last_emitted_text.clear();
+            consecutive_silent_frames = 0;
+        }
     }
 }

@@ -10,6 +10,7 @@
 #include <QProcess>
 #include <QMessageBox>
 #include <QIcon>
+#include <QCheckBox>
 
 class HomeInUninstaller : public QWidget {
 public:
@@ -22,10 +23,16 @@ public:
         QLabel *title = new QLabel("Uninstall Home Indeed Plugin", this);
         title->setStyleSheet("font-size: 16px; font-weight: bold;");
         layout->addWidget(title);
+
+
         
         QLabel *desc = new QLabel("This will remove all plugin files, models, and databases from your OBS installation.", this);
         desc->setWordWrap(true);
         layout->addWidget(desc);
+        
+        wipe_settings_checkbox = new QCheckBox("Remove saved preferences and API keys", this);
+        wipe_settings_checkbox->setChecked(false); // Default to keeping settings safe
+        layout->addWidget(wipe_settings_checkbox);
         
         progressBar = new QProgressBar(this);
         progressBar->setRange(0, 100);
@@ -44,6 +51,7 @@ private:
     QProgressBar *progressBar;
     QLabel *statusLabel;
     QPushButton *uninstallBtn;
+    QCheckBox *wipe_settings_checkbox;
 
     void onUninstall() {
         // 1. Check for Running OBS
@@ -87,6 +95,15 @@ private:
             QDir dir(dataPath);
             if (!dir.removeRecursively()) success = false;
         }
+
+        // --- NEW: WIPE SAVED PREFERENCES FROM REGISTRY ---
+        if (wipe_settings_checkbox->isChecked()) {
+            statusLabel->setText("Clearing saved settings...");
+            QSettings settings("HomeIndeed", "Plugin");
+            settings.clear(); 
+            settings.sync();  
+        }
+        // -------------------------------------------------
 
         progressBar->setValue(100);
         if (success) {

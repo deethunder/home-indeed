@@ -20,12 +20,17 @@
 #include <QLineEdit>
 #include <QTimer>
 #include <QGridLayout>
+#include "../stt/ISTTProvider.hpp"
+#include "../stt/homein-transcript-queue.hpp"
+#include "../detection/homein-context.hpp"
 #include "../stt/homein-stt.hpp"
+#include "../stt/homein-deepgram.hpp"
 #include "../database/homein-db.hpp"
 #include "../database/homein-lyrics-db.hpp"
 #include "../detection/homein-ref-parser.hpp"
 #include "../detection/homein-lyrics-engine.hpp"
 #include "../updater/homein-updater.hpp"
+#include <unordered_set>
 
 class HomeInDock : public QWidget {
     Q_OBJECT
@@ -74,10 +79,15 @@ private:
     void ClearBibleGrid();
     void PopulateChapterGrid(const std::string& book_name, int count);
     void PopulateBookGrid();
+    void PopulateAudioSources();
+    void ApplySavedAudioSource();
+    static void OBSFrontendEventCallback(enum obs_frontend_event event, void *private_data);
     void OnChapterSelected();
     void OnBookSelected();
     void ApplySettings();
     void RefreshBibleView();
+    void SaveQueue();
+    void LoadQueue();
 
     // FIX #1: Helper that always returns the clean abbreviation (e.g. "KJV")
     // from item data rather than the display text.
@@ -87,6 +97,7 @@ private:
     bool mic_active  = false;
     bool mic_paused  = false;
     bool is_searching = false;
+    bool is_transcribing = false;
 
     QPushButton    *mic_btn;
     QPushButton    *pause_btn;
@@ -97,9 +108,9 @@ private:
     QTabWidget     *tabs_widget;
 
     QTextEdit  *transcript_view;
-    QTextEdit  *bible_suggestion_view;
     QLineEdit  *bible_search_input;
     QLabel     *suggestion_label;
+    QLabel     *lyrics_suggestion_label;
     QPushButton *push_btn;
     QPushButton *bible_prev_btn;
     QPushButton *bible_next_btn;
@@ -127,12 +138,15 @@ private:
 
     QComboBox  *align_combo;
     QComboBox  *font_color_combo;
+    QComboBox  *audio_source_combo;
     QCheckBox  *fullscreen_checkbox;
     QComboBox  *bible_version_combo;
     QComboBox  *lines_per_page_combo;
     QCheckBox  *auto_switch_tabs_checkbox;
     QCheckBox  *auto_search_checkbox;
     QCheckBox  *auto_push_checkbox;
+    QComboBox  *stt_mode_combo;
+    QLineEdit  *deepgram_key_edit;
     bool auto_switch_tabs = true;
     bool auto_search      = true;
     bool auto_push        = true;
@@ -145,11 +159,21 @@ private:
     int current_verse_index = -1;
     int lines_per_page = 2;
 
-    HomeInSTTEngine      stt_engine;
+    void DetectionLoop();
+    void RunDetection(const std::string& text);
+
+    std::unique_ptr<ISTTProvider> stt_provider;
+    std::shared_ptr<TranscriptQueue> transcript_queue;
+    std::shared_ptr<SermonContext> sermon_context;
+    std::thread detection_thread;
+    std::atomic<bool> detection_running{false};
+
     HomeInRefParser      ref_parser;
     HomeInDB             bible_db;
     HomeInLyricsEngine   lyrics_engine;
     HomeInUpdateChecker  updater;
 
     SongLyric current_song;
+    std::unordered_set<std::string> queued_refs;
+    QTimer *lyrics_debounce;
 };

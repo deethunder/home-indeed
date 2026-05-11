@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home Indeed | AI-Powered OBS Plugin for Churches</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+            padding: 4rem 2rem;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 2rem;
+            letter-spacing: 0.5px;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            line-height: 1.1;
+        }
+
+        .gradient-text {
+            background: linear-gradient(to right, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto 3rem auto;
+        }
+
+        .waitlist-form {
+            display: flex;
+            gap: 0.5rem;
+            max-width: 500px;
+            margin: 0 auto 4rem auto;
+        }
+
+        .waitlist-form input[type="email"] {
+            flex: 1;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            background: var(--card-bg);
+            color: white;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .waitlist-form input[type="email"]:focus {
+            border-color: var(--accent);
+        }
+
+        .waitlist-form button {
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            border: none;
+            background: var(--accent);
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .waitlist-form button:hover {
+            background: var(--accent-hover);
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            text-align: left;
+            margin-top: 2rem;
+        }
+
+        .feature-card {
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid #334155;
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+            color: #e2e8f0;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 2.5rem; }
+            .waitlist-form { flex-direction: column; }
+            .waitlist-form button { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 1.5rem;">
+            <img src="assets/hi-logo.png" alt="Home Indeed Logo" style="width: 60px; height: auto; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));">
+            <span style="font-size: 2rem; font-weight: 800; letter-spacing: -0.5px;">Home Indeed</span>
+        </div>
+        <br>
+        <div class="badge">🚀 IN ACTIVE DEVELOPMENT</div>
+        
+        <h1>The Ultimate AI-Powered <br><span class="gradient-text">OBS Plugin for Churches</span></h1>
+        
+        <p class="subtitle">
+            Flawless, offline, voice-activated scripture and lyric projection. 
+            Join the waitlist to get early access to <strong>Home Indeed</strong> when we launch.
+        </p>
+
+        <form class="waitlist-form" name="waitlist" method="POST" data-netlify="true">
+            <input type="email" name="email" placeholder="Enter your email address..." required>
+            <button type="submit">Join Waitlist</button>
+        </form>
+
+        <div class="features">
+            <div class="feature-card">
+                <h3>🎙️ Local AI Detection</h3>
+                <p>Powered by highly optimized Whisper models. Catch scriptures fast and accurately with zero internet connection required.</p>
+            </div>
+            <div class="feature-card">
+                <h3>🎶 Auto-Lyrics Engine</h3>
+                <p>Never fall behind the worship team. The AI detects what is being sung and automatically queues the correct lyrics on screen.</p>
+            </div>
+            <div class="feature-card">
+                <h3>⚡ Seamless OBS Integration</h3>
+                <p>A native C++ and Qt architecture. It lives right inside OBS Studio, tapping into your audio with zero latency or external apps.</p>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

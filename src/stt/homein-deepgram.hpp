@@ -1,0 +1,71 @@
+#pragma once
+#include "ISTTProvider.hpp"
+#include <string>
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <mutex>
+
+#ifdef _WIN32 // --- WINDOWS IMPLEMENTATION ---
+#define NOMINMAX
+#include <windows.h>
+#include <winhttp.h>
+
+/**
+ * @class DeepgramSTTProvider
+ * @brief Cloud-based STT using Deepgram WebSocket API (WinHTTP).
+ */
+class DeepgramSTTProvider : public ISTTProvider {
+public:
+    DeepgramSTTProvider();
+    ~DeepgramSTTProvider();
+
+    bool Initialize(const std::string& api_key) override;
+    void Start(TranscriptCallback callback) override;
+    void Stop() override;
+
+    void SetPaused(bool paused) override { is_paused = paused; }
+    bool IsPaused() const override { return is_paused; }
+    bool IsRunning() const override { return running; }
+
+    std::string GetName() const override { return "Deepgram (Cloud)"; }
+    bool IsCloud() const override { return true; }
+
+private:
+    void RunLoop();
+    void ReceiveLoop();
+    void HandleResponse(const std::string& json);
+
+    std::string api_key;
+    std::thread worker_thread;
+    std::thread receive_thread;
+    std::atomic<bool> running{false};
+    std::atomic<bool> is_paused{false};
+    TranscriptCallback on_transcript;
+
+    HINTERNET hSession = NULL;
+    HINTERNET hConnect = NULL;
+    HINTERNET hRequest = NULL;
+    HINTERNET hWebSocket = NULL;
+};
+
+#else // --- MAC & LINUX STUB ---
+class DeepgramSTTProvider : public ISTTProvider {
+public:
+    DeepgramSTTProvider() {}
+    ~DeepgramSTTProvider() {}
+
+    bool Initialize(const std::string& api_key) override { return false; }
+    void Start(TranscriptCallback callback) override { 
+        if (callback) callback("[Deepgram is currently Windows-only. Switching to offline mode...]", false); 
+    }
+    void Stop() override {}
+
+    void SetPaused(bool paused) override {}
+    bool IsPaused() const override { return false; }
+    bool IsRunning() const override { return false; }
+
+    std::string GetName() const override { return "Deepgram (Cloud)"; }
+    bool IsCloud() const override { return true; }
+};
+#endif

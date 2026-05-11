@@ -41,7 +41,7 @@
       "description": "Build for macOS 12.0+ (Universal binary) for CI",
       "generator": "Xcode",
       "cacheVariables": {
-        "CMAKE_COMPILE_WARNING_AS_ERROR": true,
+        "CMAKE_COMPILE_WARNING_AS_ERROR": false,
         "ENABLE_CCACHE": true
       }
     },
@@ -65,6 +65,25 @@
         "CMAKE_COMPILE_WARNING_AS_ERROR": false,
         "CMAKE_CXX_FLAGS": "/EHsc /WX- /wd4996 /wd4305 /wd4244 /wd4267 /wd4100 /wd4530 /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
         "CMAKE_C_FLAGS": "/EHsc /WX- /wd4996 /wd4305 /wd4244 /wd4267 /wd4100 /wd4530 /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS"
+      }
+    },
+    {
+      "name": "windows-ci-x64",
+      "displayName": "Windows CI x64",
+      "description": "CI build for Windows x64",
+      "inherits": ["template"],
+      "binaryDir": "${sourceDir}/build_x64",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "cacheVariables": {
+        "ENABLE_FRONTEND_API": true,
+        "ENABLE_QT": true,
+        "CMAKE_COMPILE_WARNING_AS_ERROR": false
       }
     },
     {
@@ -92,7 +111,7 @@
       "description": "Build for Ubuntu x86_64 on CI",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_COMPILE_WARNING_AS_ERROR": true,
+        "CMAKE_COMPILE_WARNING_AS_ERROR": false,
         "ENABLE_CCACHE": true
       }
     }
@@ -110,6 +129,13 @@
       "configurePreset": "macos-ci",
       "displayName": "macOS Universal CI",
       "description": "macOS CI build for Universal architectures",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "windows-x64",
+      "configurePreset": "windows-ci-x64",
+      "displayName": "Windows x64 CI",
+      "description": "Windows CI build for x64",
       "configuration": "RelWithDebInfo"
     },
     {

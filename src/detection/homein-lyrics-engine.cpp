@@ -34,10 +34,10 @@ void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query,
     blog(LOG_INFO, "HomeIndeed: Fetching lyrics from LRCLIB for: %s (WinHTTP)", query.c_str());
     
     QtConcurrent::run([this, query, callback]() {
-        std::string encoded = query;
-        // Simple encoding for query
-        std::replace(encoded.begin(), encoded.end(), ' ', '+');
-        std::string url = "https://lrclib.net/api/search?q=" + encoded;
+        // Append "worship christian" to queries to bias LRCLIB toward church songs
+        std::string biased_query = query + " worship christian";
+        std::replace(biased_query.begin(), biased_query.end(), ' ', '+');
+        std::string url = "https://lrclib.net/api/search?q=" + biased_query;
 
         std::string response = HomeIn::HttpClient::Get(url);
         std::vector<SongLyric> results;
@@ -62,6 +62,23 @@ void HomeInLyricsEngine::FetchFromLRCLIB(const std::string& query,
                     local_db.AddSong(s.title, s.artist, s.content, s.source);
                 }
             }
+            
+            // Score results by title similarity to original query for relevance
+            auto score = [&query](const SongLyric& s) -> int {
+                std::string t = s.title;
+                std::transform(t.begin(), t.end(), t.begin(), ::tolower);
+                std::string q = query;
+                std::transform(q.begin(), q.end(), q.begin(), ::tolower);
+                if (t == q) return 100;
+                if (t.find(q) == 0) return 80;   // query is prefix of title
+                if (t.find(q) != std::string::npos) return 60;
+                return 0;
+            };
+            std::stable_sort(results.begin(), results.end(),
+                [&score](const SongLyric& a, const SongLyric& b) {
+                    return score(a) > score(b);
+                });
+
             if (!results.empty()) local_db.RebuildFTS();
         } else {
             blog(LOG_ERROR, "HomeIndeed: LRCLIB query failed (WinHTTP) or empty response");
