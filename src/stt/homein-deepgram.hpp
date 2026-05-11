@@ -55,13 +55,13 @@ public:
     DeepgramSTTProvider() {}
     ~DeepgramSTTProvider() {}
 
-    bool Initialize(const std::string& api_key) override { return false; }
+    bool Initialize(const std::string&) override { return false; }
     void Start(TranscriptCallback callback) override { 
         if (callback) callback("[Deepgram is currently Windows-only. Switching to offline mode...]", false); 
     }
     void Stop() override {}
 
-    void SetPaused(bool paused) override {}
+    void SetPaused(bool) override {}
     bool IsPaused() const override { return false; }
     bool IsRunning() const override { return false; }
 
