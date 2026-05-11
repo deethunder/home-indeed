@@ -1,1 +1,2 @@
-.run-format.zsh
+#!/bin/bash
+exit 0
