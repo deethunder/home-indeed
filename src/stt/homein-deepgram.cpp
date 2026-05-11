@@ -9,6 +9,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QMessageBox>
+#include <QApplication>
+#include <QMetaObject>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -83,22 +86,35 @@ void DeepgramSTTProvider::RunLoop() {
         blog(LOG_ERROR, "Deepgram: WinHttpSetOption(UPGRADE) failed. Error: %lu", GetLastError());
         return;
     }
-
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) { 
-        DWORD err = GetLastError();
-        std::string msg;
-        if (err == 12007) msg = "[Deepgram: DNS failed — check internet connection]";
-        else if (err == 12029) msg = "[Deepgram: Cannot connect — firewall may be blocking]";
-        else if (err == 12175) msg = "[Deepgram: SSL error — try disabling VPN]";
-        else msg = "[Deepgram: Network error " + std::to_string(err) + "]";
-        
-        blog(LOG_ERROR, "HomeIndeed: %s", msg.c_str()); 
-        if (on_transcript) on_transcript(msg, false);
-        return; 
+    
+    // 1. Actually attempt to send the connection request (this was missing!)
+    bool bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+    
+    // 2. If the send was successful, wait for the response
+    if (bResults) {
+        bResults = WinHttpReceiveResponse(hRequest, NULL);
     }
-    if (!WinHttpReceiveResponse(hRequest, NULL)) { 
-        blog(LOG_ERROR, "Deepgram: WinHttpReceiveResponse failed. Error: %lu", GetLastError()); 
-        return; 
+
+    // 3. IF EITHER OF THOSE FAILED (No internet, DNS failure, etc.), SHOW THE POPUP!
+    if (!bResults) {
+        blog(LOG_ERROR, "Deepgram: Connection failed. Check internet. Error: %lu", GetLastError());
+        
+        // --- PROFESSIONAL ERROR POPUP ---
+        QMetaObject::invokeMethod(qApp, []() {
+            QMessageBox msgBox;
+            msgBox.setIcon(QMessageBox::Critical);
+            msgBox.setWindowTitle("Connection Error");
+            msgBox.setText("Deepgram Cloud connection failed.");
+            msgBox.setInformativeText("Please check your internet connection, or switch to the Local (Whisper) engine for offline mode.");
+            msgBox.setStandardButtons(QMessageBox::Ok);
+            
+            // Forces the popup to stay on top of OBS
+            msgBox.setWindowFlags(msgBox.windowFlags() | Qt::WindowStaysOnTopHint); 
+            msgBox.exec();
+        }, Qt::QueuedConnection);
+        // --------------------------------
+        
+        return; // Stop running Deepgram since we have no connection
     }
 
     hWebSocket = WinHttpWebSocketCompleteUpgrade(hRequest, NULL);

@@ -116,52 +116,52 @@ void HomeInSTTEngine::RunLoop() {
 
         pcmf32.insert(pcmf32.end(), latest_samples.begin(), latest_samples.end());
 
-        // Whisper tiny.en needs minimum 1s for reliable output.
-        static constexpr int kWindowSamples  = WHISPER_SAMPLE_RATE * 3;   // 3s window
-        static constexpr int kOverlapSamples = WHISPER_SAMPLE_RATE / 2;   // 0.5s overlap
-        static constexpr int kMinSamples     = WHISPER_SAMPLE_RATE * 1;   // 1s minimum
+        // 15-second expanding window for full context
+        static constexpr int kMaxSamples = WHISPER_SAMPLE_RATE * 15;  
+        static constexpr int kMinSamples = WHISPER_SAMPLE_RATE * 1;   
 
         if ((int)pcmf32.size() < kMinSamples) continue;
 
-        // Extract the window to process
-        pcm_window = pcmf32;
-        if ((int)pcm_window.size() > kWindowSamples) {
-            pcm_window.erase(pcm_window.begin(), 
-                pcm_window.begin() + ((int)pcm_window.size() - kWindowSamples));
+        // Prevent buffer from growing infinitely (cap at 15s)
+        if ((int)pcmf32.size() > kMaxSamples) {
+            pcmf32.erase(pcmf32.begin(), pcmf32.begin() + ((int)pcmf32.size() - kMaxSamples));
         }
 
-        // Secondary VAD: Whisper is prone to hallucinations on silence.
-        float sum = 0.0f;
-        for (float s : pcm_window) sum += s * s;
-        float rms = std::sqrtf(sum / static_cast<float>(pcm_window.size()));
-        
-        // FIX: Lowered threshold for soundboard audio
-        static constexpr float kVadThreshold = 0.0005f; 
-        
-        // Static counter to track how long they have been silent
-        static int consecutive_silent_frames = 0;
+        pcm_window = pcmf32;
 
+        // Stable VAD: Check for actual new audio
+        float rms = 0.0f;
+        
+        if (latest_samples.empty()) {
+            // THE FIX: If the OBS Gate is closed and sends no new audio, force silence!
+            rms = 0.0f; 
+        } else {
+            // Otherwise, check the volume of the last 1 second of the buffer
+            float sum = 0.0f;
+            int vad_start = std::max(0, (int)pcm_window.size() - WHISPER_SAMPLE_RATE);
+            for (int i = vad_start; i < pcm_window.size(); ++i) {
+                sum += pcm_window[i] * pcm_window[i];
+            }
+            rms = std::sqrtf(sum / static_cast<float>(pcm_window.size() - vad_start));
+        }
+        
+        // Back to the stable develop branch threshold
+        static constexpr float kVadThreshold = 0.001f; 
+        static int consecutive_silent_frames = 0;
+        bool should_flush = false;
+
+        // If silent, flag for flushing, but DO NOT skip processing this frame!
         if (rms < kVadThreshold) {
             consecutive_silent_frames++;
-            
-            // Wait roughly 1.5 seconds (about 6-7 frames of our 250ms chunks) before flushing
-            if (consecutive_silent_frames > 6) {
-                if (!last_emitted_text.empty()) {
-                    // Flush as FINAL to trigger the queue/detection
-                    if (on_transcript) on_transcript(last_emitted_text, false);
-                    last_emitted_text.clear();
-                }
-                pcmf32.clear(); 
+            if (consecutive_silent_frames > 6) { // ~1.5s of silence
+                should_flush = true;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            continue;
         } else {
-            // They are speaking! Reset the silence counter.
             consecutive_silent_frames = 0;
         }
 
         auto t_start = std::chrono::high_resolution_clock::now();
-        blog(LOG_INFO, "Whisper: Processing %d samples (RMS: %f)", (int)pcm_window.size(), rms);
+        // blog(LOG_INFO, "Whisper: Processing %d samples (RMS: %f)", (int)pcm_window.size(), rms);
         
         // Strict anti-hallucination parameters
         wparams.no_speech_thold = 0.6f;
@@ -171,14 +171,8 @@ void HomeInSTTEngine::RunLoop() {
             blog(LOG_ERROR, "Whisper: Full processing failed");
             continue;
         }
-        auto t_end = std::chrono::high_resolution_clock::now();
-        
-        // After processing, keep overlap for next cycle
-        if ((int)pcmf32.size() > kOverlapSamples) {
-            pcmf32.erase(pcmf32.begin(),
-                pcmf32.begin() + ((int)pcmf32.size() - kOverlapSamples));
-        }
 
+        // Output assembly
         const int n_segments = whisper_full_n_segments(ctx);
         std::string full_text;
         for (int i = 0; i < n_segments; ++i) {
@@ -193,8 +187,16 @@ void HomeInSTTEngine::RunLoop() {
 
             if (full_text.length() > 2 && full_text != last_emitted_text) {
                 last_emitted_text = full_text;
-                on_transcript(full_text, true); // EMIT AS PARTIAL while speaking
+                // If it's a flush, emit as FINAL (false). Otherwise, emit as PARTIAL (true).
+                on_transcript(full_text, !should_flush); 
             }
+        }
+
+        // Safely wipe the buffer AFTER Whisper has outputted the final word
+        if (should_flush) {
+            pcmf32.clear();
+            last_emitted_text.clear();
+            consecutive_silent_frames = 0;
         }
     }
 }
