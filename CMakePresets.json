@@ -42,6 +42,8 @@
       "generator": "Xcode",
       "cacheVariables": {
         "CMAKE_COMPILE_WARNING_AS_ERROR": false,
+        "OBS_WARNINGS_AS_ERRORS": false,
+        "ENABLE_WERROR": false,
         "ENABLE_CCACHE": true
       }
     },
@@ -63,6 +65,8 @@
         "ENABLE_QT": true,
         "BUILD_SHARED_LIBS": false,
         "CMAKE_COMPILE_WARNING_AS_ERROR": false,
+        "OBS_WARNINGS_AS_ERRORS": false,
+        "ENABLE_WERROR": false,
         "CMAKE_CXX_FLAGS": "/EHsc /WX- /wd4996 /wd4305 /wd4244 /wd4267 /wd4100 /wd4530 /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
         "CMAKE_C_FLAGS": "/EHsc /WX- /wd4996 /wd4305 /wd4244 /wd4267 /wd4100 /wd4530 /D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS"
       }
@@ -83,7 +87,9 @@
       "cacheVariables": {
         "ENABLE_FRONTEND_API": true,
         "ENABLE_QT": true,
-        "CMAKE_COMPILE_WARNING_AS_ERROR": false
+        "CMAKE_COMPILE_WARNING_AS_ERROR": false,
+        "OBS_WARNINGS_AS_ERRORS": false,
+        "ENABLE_WERROR": false
       }
     },
     {
@@ -112,6 +118,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_COMPILE_WARNING_AS_ERROR": false,
+        "OBS_WARNINGS_AS_ERRORS": false,
+        "ENABLE_WERROR": false,
         "ENABLE_CCACHE": true
       }
     }
