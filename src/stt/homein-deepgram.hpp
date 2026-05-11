@@ -1,13 +1,15 @@
 #pragma once
 #include "ISTTProvider.hpp"
-#define NOMINMAX
-#include <windows.h>
-#include <winhttp.h>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <vector>
 #include <mutex>
+
+#ifdef _WIN32 // --- WINDOWS IMPLEMENTATION ---
+#define NOMINMAX
+#include <windows.h>
+#include <winhttp.h>
 
 /**
  * @class DeepgramSTTProvider
@@ -46,3 +48,24 @@ private:
     HINTERNET hRequest = NULL;
     HINTERNET hWebSocket = NULL;
 };
+
+#else // --- MAC & LINUX STUB ---
+class DeepgramSTTProvider : public ISTTProvider {
+public:
+    DeepgramSTTProvider() {}
+    ~DeepgramSTTProvider() {}
+
+    bool Initialize(const std::string& api_key) override { return false; }
+    void Start(TranscriptCallback callback) override { 
+        if (callback) callback("[Deepgram is currently Windows-only. Switching to offline mode...]", false); 
+    }
+    void Stop() override {}
+
+    void SetPaused(bool paused) override {}
+    bool IsPaused() const override { return false; }
+    bool IsRunning() const override { return false; }
+
+    std::string GetName() const override { return "Deepgram (Cloud)"; }
+    bool IsCloud() const override { return true; }
+};
+#endif

@@ -1,3 +1,5 @@
+#ifdef _WIN32
+
 #define NOMINMAX
 #include "homein-deepgram.hpp"
 #include "../audio/homein-audio.hpp"
@@ -225,3 +227,6 @@ void DeepgramSTTProvider::HandleResponse(const std::string& json_str) {
         on_transcript(text.toStdString(), !is_final); // is_partial = NOT is_final
     }
 }
+
+#endif // _WIN32
+
