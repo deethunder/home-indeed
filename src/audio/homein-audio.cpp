@@ -7,7 +7,7 @@
 static std::unique_ptr<HomeInAudioHandler> g_audio_handler = nullptr;
 static std::mutex g_handler_mutex;
 
-static void on_source_audio_capture(void* data, obs_source_t* source, const struct audio_data* audio, bool muted) {
+void on_source_audio_capture(void* data, obs_source_t* source, const struct audio_data* audio, bool muted) {
     UNUSED_PARAMETER(source);
     if (muted || !audio) return;
     
@@ -47,7 +47,7 @@ static obs_properties_t* homein_audio_filter_properties(void* data) {
     return props;
 }
 
-static void* homein_audio_filter_create(obs_data_t* settings, obs_source_t* context) {
+void* homein_audio_filter_create(obs_data_t* settings, obs_source_t* context) {
     UNUSED_PARAMETER(settings);
     UNUSED_PARAMETER(context);
     
