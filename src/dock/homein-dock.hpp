@@ -1,5 +1,4 @@
 #pragma once
-
 #include <obs-frontend-api.h>
 #include <QWidget>
 #include <QTextEdit>
