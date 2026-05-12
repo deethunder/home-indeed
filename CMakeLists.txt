@@ -54,6 +54,9 @@ if(ENABLE_QT)
 endif()
 
 # Integrated libraries
+# Integrated libraries
+set(WHISPER_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
+set(GGML_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
 add_subdirectory(vendor/whisper.cpp)
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE 

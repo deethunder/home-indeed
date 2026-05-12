@@ -142,7 +142,7 @@ void HomeInSTTEngine::RunLoop() {
             for (int i = vad_start; i < (int)pcm_window.size(); ++i) {
                 sum += pcm_window[i] * pcm_window[i];
             }
-            rms = std::sqrtf(sum / static_cast<float>(pcm_window.size() - vad_start));
+            rms = std::sqrt(sum / static_cast<float>(pcm_window.size() - vad_start));
         }
         
         // Back to the stable develop branch threshold
