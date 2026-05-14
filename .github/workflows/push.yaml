@@ -63,16 +63,25 @@ jobs:
         if: fromJSON(steps.check.outputs.validTag)
         id: download
 
-      - name: Flatten Artifact Directories 🏷️
+      - name: Download Build Artifacts 📥
+        uses: actions/download-artifact@v4
+        if: fromJSON(steps.check.outputs.validTag)
+        with:
+          pattern: '*'
+          merge-multiple: true
+
+      - name: Generate Checksums 🪪
         if: fromJSON(steps.check.outputs.validTag)
         run: |
-          : Flatten Artifact Directories 🏷️
+          : Generate Checksums 🪪
           if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
+          shopt -s extglob
+
+          echo "### Checksums" > ${{ github.workspace }}/CHECKSUMS.txt
+          for file in ${{ github.workspace }}/@(*.exe|*.deb|*.ddeb|*.pkg|*.tar.xz|*.zip); do
+            echo "    ${file##*/}: $(sha256sum "${file}" | cut -d " " -f 1)" >> ${{ github.workspace }}/CHECKSUMS.txt
+          done
           
-          # Brute-force: Find all relevant release files in any downloaded artifact subfolder
-          # and move them directly to the main workspace folder for the release script.
-          find . -mindepth 2 -type f \( -name "*.exe" -o -name "*.zip" -o -name "*.pkg" -o -name "*.deb" -o -name "*.ddeb" -o -name "*.tar.xz" \) -exec mv {} . \;
-      
       - name: Generate Checksums 🪪
         if: fromJSON(steps.check.outputs.validTag)
         run: |

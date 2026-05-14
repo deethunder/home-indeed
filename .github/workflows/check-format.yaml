@@ -3,7 +3,6 @@ on:
   workflow_call:
 jobs:
   clang-format:
-    if: false # BYPASS LINUX PERMISSIONS ERRORS TEMPORARILY
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -16,7 +15,6 @@ jobs:
           failCondition: error
 
   gersemi:
-    if: false # BYPASS LINUX PERMISSIONS ERRORS TEMPORARILY
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

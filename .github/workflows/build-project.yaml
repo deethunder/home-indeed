@@ -72,7 +72,6 @@ jobs:
           fi
 
   macos-build:
-    if: false # BYPASS MACOS BUILD TEMPORARILY
     name: Build for macOS 🍏
     runs-on: macos-15
     needs: check-event
@@ -111,6 +110,10 @@ jobs:
 
           print "pluginName=${product_name}" >> $GITHUB_OUTPUT
           print "pluginVersion=${product_version}" >> $GITHUB_OUTPUT
+      
+          print '::group::Force Script Permissions'
+          chmod -R +x .github/scripts build-aux .github/actions || true
+          print '::endgroup::'
 
       - uses: actions/cache/restore@v4
         id: ccache-cache
@@ -176,7 +179,6 @@ jobs:
           key: ${{ runner.os }}-ccache-${{ needs.check-event.outputs.config }}
 
   ubuntu-build:
-    if: false # BYPASS UBUNTU BUILD TEMPORARILY
     name: Build for Ubuntu 🐧
     strategy:
       matrix:
@@ -256,7 +258,11 @@ jobs:
         with:
           path: ${{ github.workspace }}/.ccache
           key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
-
+          
+          echo "::group::Force Script Permissions"
+          chmod -R +x .github/scripts build-aux .github/actions || true
+          echo "::endgroup::"
+          
   windows-build:
     name: Build for Windows 🪟
     runs-on: windows-2022

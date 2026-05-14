@@ -1,6 +1,8 @@
 #pragma once
 #include <string>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <winhttp.h>
 
 #pragma comment(lib, "winhttp.lib")
