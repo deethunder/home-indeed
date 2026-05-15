@@ -20,11 +20,13 @@
 #include <QLineEdit>
 #include <QTimer>
 #include <QGridLayout>
+
+// Core STT Interface and Universal Manager
 #include "../stt/ISTTProvider.hpp"
 #include "../stt/homein-transcript-queue.hpp"
-#include "../detection/homein-context.hpp"
 #include "../stt/homein-stt.hpp"
-#include "../stt/homein-deepgram.hpp"
+
+#include "../detection/homein-context.hpp"
 #include "../database/homein-db.hpp"
 #include "../database/homein-lyrics-db.hpp"
 #include "../detection/homein-ref-parser.hpp"
@@ -89,8 +91,6 @@ private:
     void SaveQueue();
     void LoadQueue();
 
-    // FIX #1: Helper that always returns the clean abbreviation (e.g. "KJV")
-    // from item data rather than the display text.
     std::string CurrentTranslation() const;
 
     FocusMode current_focus = FocusMode::Auto;
@@ -145,7 +145,6 @@ private:
     QCheckBox  *auto_switch_tabs_checkbox;
     QCheckBox  *auto_search_checkbox;
     QCheckBox  *auto_push_checkbox;
-    QComboBox  *stt_mode_combo;
     QLineEdit  *deepgram_key_edit;
     bool auto_switch_tabs = true;
     bool auto_search      = true;

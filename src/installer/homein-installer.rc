@@ -1,9 +1,0 @@
-#include <windows.h>
-
-// ID for the manifest
-#ifndef CREATEPROCESS_MANIFEST_RESOURCE_ID
-#define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
-#endif
-
-// Manifest resource
-CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "installer.manifest"

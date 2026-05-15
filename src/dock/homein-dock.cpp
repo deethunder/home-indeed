@@ -33,6 +33,14 @@
 #include <QSettings>
 #include <obs-frontend-api.h>
 
+// =====================================================================
+// 🛠️ DEVELOPER TESTING SWITCH
+// Change this value to test different STT engines during development.
+// Whatever this is set to when you compile is what the users will get.
+// Options: WHISPER_LOCAL | VOSK_LOCAL | DEEPGRAM_CLOUD
+// =====================================================================
+static constexpr STTEngineType ACTIVE_STT_ENGINE = STTEngineType::VOSK_LOCAL;
+
 // Returns a QIcon from a bundled SVG, tinted to match Qt's text colour.
 static QIcon HomeInIcon(const QString& name, int size = 16) {
     QString path = QString(":/assets/icons/%1.svg").arg(name);
@@ -131,8 +139,6 @@ HomeInDock::HomeInDock(QWidget *parent) : QWidget(parent) {
             QDesktopServices::openUrl(QUrl(url));
     });
 
-    // FIX #11: Delay update check 3 s so 'this' is fully constructed before
-    // any signal can fire back into the lambda that captures it.
     QTimer::singleShot(3000, this, [this]() {
         updater.CheckForUpdates("DeeThunder/Home-Indeed");
     });
@@ -262,17 +268,13 @@ void HomeInDock::SetupUI() {
 
     action_layout->addWidget(bible_prev_btn);
     action_layout->addWidget(bible_next_btn);
-    action_layout->addStretch(); // Spring to prevent squashing
+    action_layout->addStretch();
     action_layout->addWidget(clear_btn);
     action_layout->addWidget(push_btn);
     b_layout->addLayout(action_layout);
-    
-    // Add stretch at the very bottom so everything packs tightly to the top
     b_layout->addStretch();
-    
     tabs_widget->addTab(bible_tab, HomeInIcon("book-open", 18), "Bible");
     
-    // Connect clear button immediately - Only clears LIVE output
     connect(clear_btn, &QPushButton::clicked, [this]() {
         HomeInRenderer* r = GetActiveRenderer();
         if (r) r->SetText("");
@@ -374,11 +376,10 @@ void HomeInDock::SetupUI() {
 
     stepper_layout->addWidget(prev_verse_btn);
     stepper_layout->addWidget(next_verse_btn);
-    stepper_layout->addStretch(); // Spring to prevent squashing
+    stepper_layout->addStretch();
     stepper_layout->addWidget(lyrics_clear_btn);
     stepper_layout->addWidget(lyrics_push_btn);
     l_layout->addLayout(stepper_layout);
-    
     l_layout->addStretch();
     tabs_widget->addTab(lyrics_tab, HomeInIcon("list-music", 18), "Lyrics");
 
@@ -425,10 +426,8 @@ void HomeInDock::SetupUI() {
     
     tabs_widget->addTab(queue_tab, HomeInIcon("list", 18), "Queue");
     
-    // INTERACTIVE QUEUE: Double-click to push live
     connect(queue_list, &QListWidget::itemDoubleClicked, this, &HomeInDock::UpdateOverlayFromSelection);
 
-    // TAB GUARD: Clear ghost messages when switching
     connect(tabs_widget, &QTabWidget::currentChanged, [this](int index) {
         if (index != 2) {
             lyrics_results_list->setVisible(false);
@@ -535,8 +534,6 @@ void HomeInDock::SetupUI() {
             if (isLyrics) {
                 r->SetText("\x01" + text);
             } else {
-                // For Bible, text has ref + \n + verse content. 
-                // We keep as is for professional output.
                 r->SetText(text);
             }
         }
@@ -549,7 +546,6 @@ void HomeInDock::SetupUI() {
 
     setLayout(main_layout);
 
-    // FIX: Apply initial settings to the renderer immediately
     ApplySettings();
     
     connect(tabs_widget, &QTabWidget::currentChanged, [this](int index) {
@@ -593,7 +589,7 @@ void HomeInDock::SetupToolbar(QVBoxLayout *main_layout) {
     focus_combo->setStyleSheet(
         "QComboBox { background: #1a1a1a; color: #8ab4f8; border: 1px solid #444; border-radius: 4px; padding: 2px 5px; }"
         "QComboBox::drop-down { border: 0px; }"
-        "QComboBox::down-arrow { image: none; }"); // Clean look
+        "QComboBox::down-arrow { image: none; }");
 
     QPushButton *gear_btn = new QPushButton(HomeInIcon("settings", 18), "", this);
     gear_btn->setToolTip("Configure Plugin");
@@ -635,48 +631,21 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     header->setStyleSheet("font-size: 18px; font-weight: bold; color: #0078d7;");
     layout->addWidget(header);
 
-    QGroupBox *stt_group = new QGroupBox("Speech Engine", parent);
-    QGridLayout *stt_layout = new QGridLayout(stt_group);
-    
-    stt_layout->addWidget(new QLabel("Smart Mode:", parent), 0, 0);
-    stt_mode_combo = new QComboBox(parent);
-    stt_mode_combo->addItem("Auto (recommended)", "auto");
-    stt_mode_combo->addItem("Always offline", "whisper");
-    stt_layout->addWidget(stt_mode_combo, 0, 1);
-
-    // Advanced section for Deepgram Key
-    QGroupBox *adv_group = new QGroupBox("Advanced Cloud Settings", parent);
-    QVBoxLayout *adv_layout = new QVBoxLayout(adv_group);
-    adv_group->setCheckable(true);
-    adv_group->setChecked(false);
+    QGroupBox *stt_group = new QGroupBox("Speech Engine Settings", parent);
+    QVBoxLayout *stt_layout = new QVBoxLayout(stt_group);
     
     QHBoxLayout *key_layout = new QHBoxLayout();
-    key_layout->addWidget(new QLabel("Deepgram Key:", parent));
+    key_layout->addWidget(new QLabel("Deepgram Key (If Cloud is active):", parent));
     deepgram_key_edit = new QLineEdit(parent);
     deepgram_key_edit->setEchoMode(QLineEdit::Password);
-    deepgram_key_edit->setPlaceholderText("Enter your Deepgram API Key");
+    deepgram_key_edit->setPlaceholderText("Leave blank for Local Offline AI");
     key_layout->addWidget(deepgram_key_edit);
-    adv_layout->addLayout(key_layout);
+    stt_layout->addLayout(key_layout);
 
-    QPushButton *get_key_btn = new QPushButton("Get free key at deepgram.com", parent);
-    get_key_btn->setStyleSheet("color: #8ab4f8; text-decoration: underline; background: none; border: none; text-align: left;");
-    connect(get_key_btn, &QPushButton::clicked, []() {
-        QDesktopServices::openUrl(QUrl("https://deepgram.com/"));
-    });
-    adv_layout->addWidget(get_key_btn);
-
-    stt_layout->addWidget(adv_group, 1, 0, 1, 2);
-
-    // Load persisted STT settings
     QSettings settings("HomeIndeed", "Plugin");
-    QString stt_mode = settings.value("stt_mode", "whisper").toString();
-    QString dg_key   = settings.value("deepgram_key", "").toString();
-    int mode_idx = stt_mode_combo->findData(stt_mode);
-    if (mode_idx >= 0) stt_mode_combo->setCurrentIndex(mode_idx);
+    QString dg_key = settings.value("deepgram_key", "").toString();
     deepgram_key_edit->setText(dg_key);
     
-    // Connect STT settings to ApplySettings for immediate effect
-    connect(stt_mode_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](){ ApplySettings(); });
     connect(deepgram_key_edit, &QLineEdit::editingFinished, [this](){ ApplySettings(); });
 
     layout->addWidget(stt_group);
@@ -689,7 +658,6 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     bible_version_combo = new QComboBox(parent);
     v_layout->addWidget(bible_version_combo);
     d_layout->addLayout(v_layout);
-
 
     QHBoxLayout *a_layout = new QHBoxLayout();
     a_layout->addWidget(new QLabel("Alignment:", parent));
@@ -731,11 +699,9 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     
     layout->addWidget(ai_group);
 
-    // The audio source will be bound automatically via OBS frontend event callback
-    // when the scene is loaded.
     QString saved_source = settings.value("audio_source", "").toString();
     if (!saved_source.isEmpty()) {
-        audio_source_combo->addItem(saved_source); // Placeholder so it doesn't look blank
+        audio_source_combo->addItem(saved_source);
         audio_source_combo->setCurrentIndex(0);
     }
 
@@ -743,7 +709,6 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
         QString source_name = audio_source_combo->itemText(index);
         obs_source_t* source = obs_get_source_by_name(source_name.toUtf8().constData());
         if (source) {
-            // TRANSFER OWNERSHIP to the handler (no release here!)
             GetAudioHandler()->SetCaptureSource(source);
         } else {
             GetAudioHandler()->SetCaptureSource(nullptr);
@@ -768,7 +733,7 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     a_group_layout->addWidget(auto_push_checkbox);
     
     layout->addWidget(auto_group);
-    layout->addStretch(); // Push everything to the top
+    layout->addStretch();
 
     layout->addWidget(disp_group);
 
@@ -820,11 +785,8 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
     connect(lines_per_page_combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             [this](int index) {
         lines_per_page = lines_per_page_combo->itemData(index).toInt();
-        // Re-split current song if one is loaded
         if (!current_song.content.empty()) {
             QListWidgetItem dummy;
-            
-            // FIX: Use QVariantMap here too!
             QVariantMap songData;
             songData["id"]      = current_song.id;
             songData["title"]   = QString::fromStdString(current_song.title);
@@ -832,20 +794,17 @@ void HomeInDock::SetupSettingsView(QWidget *parent) {
             songData["content"] = QString::fromStdString(current_song.content);
             songData["source"]  = QString::fromStdString(current_song.source);
             dummy.setData(Qt::UserRole, songData);
-            
             OnSongSelected(&dummy);
         }
     });
 }
 
-
 void HomeInDock::PopulateTranslations() {
     if (!bible_version_combo) return;
 
     bible_version_combo->clear();
-    auto translations = bible_db.GetTranslations(); // Now returns a vector of BibleTranslation
+    auto translations = bible_db.GetTranslations(); 
     
-    // Sort alphabetically by abbreviation for professional navigation
     std::sort(translations.begin(), translations.end(), [](const BibleTranslation& a, const BibleTranslation& b) {
         return a.abbreviation < b.abbreviation;
     });
@@ -855,17 +814,14 @@ void HomeInDock::PopulateTranslations() {
     }
 }
 
-// Helper: always read abbreviation from item data, never from display text.
 void HomeInDock::RefreshBibleView() {
     if (current_chapter_verses.empty()) return;
     
-    // Capture state
     int saved_idx = current_bible_verse_index;
     const BibleVerse& current = current_chapter_verses[std::max(0, saved_idx)];
     std::string book = current.book_name;
     int chap = current.chapter;
 
-    // Refresh entire chapter in new translation
     current_chapter_verses = bible_db.GetChapterVerses(book, chap, CurrentTranslation());
     
     if (!current_chapter_verses.empty()) {
@@ -874,10 +830,8 @@ void HomeInDock::RefreshBibleView() {
             bible_verses_list->addItem(QString::number(v.verse) + " " + QString::fromUtf8(v.text.c_str()));
         }
         
-        // Restore selection and update overlay if live
         ShowBibleVerseAtIndex((std::min)(saved_idx, (int)current_chapter_verses.size() - 1));
         
-        // Auto-update live overlay if something is already showing
         HomeInRenderer* r = GetActiveRenderer();
         if (r) {
             const BibleVerse& v = current_chapter_verses[(std::max)(0, current_bible_verse_index)];
@@ -917,11 +871,9 @@ void HomeInDock::AddToQueue() {
 
     if (!text.isEmpty()) {
        if (isLyrics && tabs_widget->currentIndex() == 2 && !current_song.content.empty()) {
-            // User wants the entire song in the queue
             QListWidgetItem* item = new QListWidgetItem(QString::fromStdString(current_song.title) + " (Full Song)", queue_list);
             item->setData(Qt::UserRole + 2, true);
             
-            // FIX: Use QVariantMap here too!
             QVariantMap songData;
             songData["id"]      = current_song.id;
             songData["title"]   = QString::fromStdString(current_song.title);
@@ -930,13 +882,11 @@ void HomeInDock::AddToQueue() {
             songData["source"]  = QString::fromStdString(current_song.source);
             item->setData(Qt::UserRole, songData);
         } else if (tabs_widget->currentIndex() == 1 && !current_chapter_verses.empty()) {
-            // Handle Bible Range sequencing
             QString label = suggestion_label->text();
             QListWidgetItem* item = new QListWidgetItem(label, queue_list);
-            item->setData(Qt::UserRole + 2, false); // Mark as Bible
+            item->setData(Qt::UserRole + 2, false); 
             item->setIcon(HomeInIcon("book", 16));
             
-            // Store precise range
             QVariantMap bibleData;
             bibleData["book"] = QString::fromStdString(current_search_book);
             bibleData["chapter"] = current_chapter_verses[0].chapter;
@@ -945,12 +895,6 @@ void HomeInDock::AddToQueue() {
             bibleData["translation"] = QString::fromStdString(CurrentTranslation());
             item->setData(Qt::UserRole, bibleData);
             
-            // Debug log the range we are storing
-            blog(LOG_INFO, "HomeIndeed: Queued Bible range %s %d:%d-%d", 
-                bibleData["book"].toString().toUtf8().constData(),
-                bibleData["chapter"].toInt(),
-                bibleData["start"].toInt(),
-                bibleData["end"].toInt());
         } else {
             QListWidgetItem* item = new QListWidgetItem(text, queue_list);
             item->setData(Qt::UserRole + 2, isLyrics);
@@ -993,7 +937,6 @@ void HomeInDock::UpdateOverlayFromSelection() {
         bool isLyrics = item->data(Qt::UserRole + 2).toBool();
         
         if (!isLyrics && item->data(Qt::UserRole).typeId() == QMetaType::QVariantMap) {
-            // Bible Sequence: Reload chapter context with precise range
             QVariantMap data = item->data(Qt::UserRole).toMap();
             std::string book = data["book"].toString().toStdString();
             int chapter = data["chapter"].toInt();
@@ -1013,9 +956,7 @@ void HomeInDock::UpdateOverlayFromSelection() {
             QVariantMap songData = item->data(Qt::UserRole).toMap();
             QString content = songData["content"].toString();
             
-            // Lyrics: Show grouped lines (2 or 4)
             QStringList lines = content.split('\n', Qt::SkipEmptyParts);
-
             int perPage = lines_per_page_combo->currentData().toInt();
             if (perPage < 1) perPage = 2;
 
@@ -1032,11 +973,10 @@ void HomeInDock::UpdateOverlayFromSelection() {
 
 void HomeInDock::ToggleSettings() {
     if (view_stack->currentIndex() == 0) {
-        PopulateAudioSources(); // Refresh list before showing
+        PopulateAudioSources(); 
         view_stack->setCurrentIndex(1);
     } else {
         QSettings settings("HomeIndeed", "Plugin");
-        settings.setValue("stt_mode", stt_mode_combo->currentData().toString());
         settings.setValue("deepgram_key", deepgram_key_edit->text().trimmed());
         settings.setValue("audio_source", audio_source_combo->currentText());
         view_stack->setCurrentIndex(0);
@@ -1048,10 +988,6 @@ void HomeInDock::UpdateAudioTest() {
     if (handler)
         audio_level_bar->setValue(static_cast<int>(handler->GetLastLevel() * 100.0f));
 
-    // FIX #14: PrepareTexture() must run on the Qt main thread (QPainter is
-    // not thread-safe). The level_timer fires at 10 fps on the Qt main thread,
-    // making it the correct place to drive texture pre-rendering.
-    // FIX: Ensure settings are pushed as soon as the renderer source is active
     static bool settings_synced = false;
     HomeInRenderer* r = GetActiveRenderer();
     if (r) {
@@ -1080,7 +1016,7 @@ void HomeInDock::OnToggleMic() {
         mic_paused = false;
         mic_btn->setIcon(HomeInIcon("mic", 20));
         mic_btn->setText("");
-        mic_btn->setStyleSheet(""); // Reset to default
+        mic_btn->setStyleSheet(""); 
         pause_btn->setIcon(HomeInIcon("pause", 20));
         pause_btn->setText("");
         pause_btn->setEnabled(false);
@@ -1106,68 +1042,58 @@ void HomeInDock::StartTranscription() {
     transcript_queue->Clear();
 
     QSettings settings("HomeIndeed", "Plugin");
-    QString mode = settings.value("stt_mode", "auto").toString();
-    QString key  = settings.value("deepgram_key", "").toString();
+    QString key = settings.value("deepgram_key", "").toString();
 
-    bool use_deepgram = (mode == "auto" && !key.isEmpty()) || mode == "cloud";
+    // 1. Instantly load whichever engine the Developer selected at the top of the file
+    stt_provider = HomeInSTTManager::CreateEngine(ACTIVE_STT_ENGINE);
+    bool init_success = false;
 
-    if (use_deepgram) {
-        stt_provider = std::make_unique<DeepgramSTTProvider>();
-        if (!stt_provider->Initialize(key.toStdString())) {
-            blog(LOG_WARNING, "HomeIndeed: Deepgram init failed, falling back to Whisper");
-            use_deepgram = false;
-        }
-    }
-    
-    if (!use_deepgram) {
-        stt_provider = std::make_unique<HomeInSTTEngine>();
-        
-        const char* model_names[] = {
-            "models/ggml-base.en.bin",  // Absolute priority for high accuracy
-            "models/ggml-small.en.bin",
-            "models/ggml-tiny.en.bin"   // Last resort fallback
-        };
-        char* model_path = nullptr;
-
-        for (const char* name : model_names) {
-            char* candidate = obs_module_file(name);
-            blog(LOG_INFO, "HomeIndeed: Checking model: %s -> %s",
-                 name, candidate ? candidate : "NOT FOUND");
-            if (candidate) { model_path = candidate; break; }
-        }
-        
+    // 2. Strict Initialization (NO FALLBACKS)
+    if (ACTIVE_STT_ENGINE == STTEngineType::DEEPGRAM_CLOUD) {
+        init_success = stt_provider->Initialize(key.toStdString());
+        if (!init_success) blog(LOG_ERROR, "HomeIndeed: Deepgram init failed. Is the API key valid?");
+    } 
+    else if (ACTIVE_STT_ENGINE == STTEngineType::WHISPER_LOCAL) {
+        char* model_path = obs_module_file("models/ggml-small.en.bin");
         if (model_path) {
-            if (!stt_provider->Initialize(model_path)) {
-                blog(LOG_ERROR, "HomeIndeed: Failed to initialize Whisper with model: %s", model_path);
-                QMessageBox::critical(this, "Whisper Error", "Failed to load model.");
-                bfree(model_path);
-                is_transcribing = false;
-                return;
-            }
+            init_success = stt_provider->Initialize(model_path);
             bfree(model_path);
         } else {
-            blog(LOG_ERROR, "HomeIndeed: No Whisper model found in OBS plugin data dir.");
-            QString data_path = QString::fromUtf8(obs_get_module_data_path(obs_current_module()));
-            QMessageBox::critical(this, "Model Missing", 
-                "Whisper model not found.\n\nCopy ggml-tiny.en.bin to:\n" + data_path + "/models/\n\n"
-                "Download: huggingface.co/ggerganov/whisper.cpp");
-            is_transcribing = false;
-            return;
+            blog(LOG_ERROR, "HomeIndeed: Whisper ggml-small.en.bin model missing!");
+        }
+    } 
+    else if (ACTIVE_STT_ENGINE == STTEngineType::VOSK_LOCAL) {
+        char* model_path = obs_module_file("models/vosk-model-small-en-us-0.15");
+        if (model_path) {
+            init_success = stt_provider->Initialize(model_path);
+            bfree(model_path);
+        } else {
+            blog(LOG_ERROR, "HomeIndeed: Vosk model folder missing!");
         }
     }
 
+    // 3. If it fails, crash out gracefully. We do NOT fall back to another engine.
+    if (!init_success) {
+        QMetaObject::invokeMethod(this, [this]() {
+            QMessageBox::critical(this, "Speech Engine Error", 
+                "The active Speech-to-Text engine failed to start.\n\n"
+                "Please check the OBS logs for missing models or invalid API keys.");
+        }, Qt::QueuedConnection);
+        is_transcribing = false;
+        return;
+    }
+
+    // 4. Start listening
     stt_provider->Start([this](const std::string& text, bool is_partial) {
         if (!is_partial && !text.empty()) {
-            // Spoken phrase finished: Append to log and push to AI detection queue
             QMetaObject::invokeMethod(this, "AppendTranscript", Qt::QueuedConnection, Q_ARG(std::string, text));
             transcript_queue->Push(text); 
         } else if (last_word_field) {
-            // Still speaking: Only update the live green text field
             QMetaObject::invokeMethod(last_word_field, "setText", Qt::QueuedConnection, Q_ARG(QString, QString::fromStdString(text)));
         }
     });
 
-    blog(LOG_INFO, "HomeIndeed: %s STT Started", stt_provider->GetName().c_str());
+    blog(LOG_INFO, "HomeIndeed: %s STT Started (Developer Hardcoded)", stt_provider->GetName().c_str());
 }
 
 void HomeInDock::StopTranscription() {
@@ -1182,7 +1108,6 @@ void HomeInDock::StopTranscription() {
 }
 
 void HomeInDock::OnImportEasyWorship() {
-    // FIX #8: Guard against an uninitialised lyrics DB.
     if (!lyrics_engine.IsDBOpen()) {
         QMessageBox::critical(this, "Import Error",
             "Lyrics database is not initialised.\n\n"
@@ -1236,7 +1161,6 @@ void HomeInDock::OnImportEasyWorship() {
                 QFile f(dir.absoluteFilePath(filename));
                 if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
                     QString content = f.readAll();
-                    // Filename is used as title
                     QString title = filename;
                     if (title.endsWith(".txt")) title.chop(4);
                     if (lyrics_engine.GetDB().AddSong(title.toStdString(), "Imported", content.toStdString(), "Text")) {
@@ -1256,7 +1180,6 @@ void HomeInDock::OnImportEasyWorship() {
     }
 }
 
-
 void HomeInDock::ApplySettings() {
     OverlaySettings s;
     s.alignment      = (Qt::Alignment)align_combo->currentData().toInt();
@@ -1269,19 +1192,12 @@ void HomeInDock::ApplySettings() {
     if (r) r->UpdateSettings(s);
 
     QSettings settings("HomeIndeed", "Plugin");
-    QString old_mode = settings.value("stt_mode", "whisper").toString();
     QString old_key  = settings.value("deepgram_key", "").toString();
-    
-    QString new_mode = stt_mode_combo->currentData().toString();
     QString new_key  = deepgram_key_edit->text().trimmed();
 
-    bool changed = (old_mode != new_mode || old_key != new_key);
-
-    // Save STT settings
-    settings.setValue("stt_mode", new_mode);
+    bool changed = (old_key != new_key);
     settings.setValue("deepgram_key", new_key);
 
-    // Auto-restart engine if active and settings changed
     if (mic_active && changed) {
         blog(LOG_INFO, "HomeIndeed: STT Settings changed, restarting engine...");
         StopTranscription();
@@ -1290,7 +1206,7 @@ void HomeInDock::ApplySettings() {
 }
 
 void HomeInDock::OnBibleSearchRequested() {
-    if (is_searching) return; // Crash Guard
+    if (is_searching) return; 
     is_searching = true;
 
     QString qText = bible_search_input->text().trimmed();
@@ -1307,7 +1223,6 @@ void HomeInDock::OnBibleSearchRequested() {
         PopulateChapterGrid(text, chapters);
     } else {
         CheckForReferences(text);
-        // Fuzzy search is handled inside CheckForReferences if refs empty
     }
     
     is_searching = false;
@@ -1408,9 +1323,8 @@ void HomeInDock::SetFocusMode(FocusMode mode) {
 void HomeInDock::CheckForLyrics(const std::string& text) {
     if (current_focus == FocusMode::Bible) return;
     if (!auto_search) return;
-    if (text.length() < 15) return; // Need enough audio context to avoid false positives
+    if (text.length() < 15) return; 
 
-    // Capture 'text' by value so it survives the async thread boundary
     lyrics_engine.Search(text, false, [this, text](const std::vector<SongLyric>& results) {
         if (!results.empty()) {
             QMetaObject::invokeMethod(this, [this, results, text]() {
@@ -1419,7 +1333,6 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                 if (!s.artist.empty()) label += " - " + QString::fromStdString(s.artist);
                 label += " (AI Detected)";
 
-                // 1. Anti-Spam Queueing
                 bool in_queue = false;
                 for(int i = 0; i < queue_list->count(); ++i) {
                     if(queue_list->item(i)->text().contains(QString::fromStdString(s.title))) {
@@ -1428,10 +1341,9 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                 }
                 if (!in_queue) {
                     QListWidgetItem* item = new QListWidgetItem(label, queue_list);
-                    item->setData(Qt::UserRole + 2, true); // Mark as Lyrics
+                    item->setData(Qt::UserRole + 2, true);
                     item->setIcon(HomeInIcon("music", 16));
                     
-                    // FIX: Convert SongLyric to a standard QVariantMap so Qt doesn't crash
                     QVariantMap songData;
                     songData["id"]      = s.id;
                     songData["title"]   = QString::fromStdString(s.title);
@@ -1441,12 +1353,9 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                     
                     item->setData(Qt::UserRole, songData);
                     SaveQueue();
-                    blog(LOG_INFO, "HomeIndeed: Automatically queued detected song: %s", label.toUtf8().constData());
                 }
 
-                // 2. LIVE LYRICS DISPLAY & TRACKING
                 if (auto_push || auto_switch_tabs) {
-                    // Split the song into chunks (2 or 4 lines per page)
                     QString qContent = QString::fromStdString(s.content).replace("\r\n", "\n");
                     QStringList all_lines = qContent.split("\n", Qt::SkipEmptyParts);
                     
@@ -1465,11 +1374,9 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                         current_chunk_str += all_lines[i].trimmed();
                         line_count++;
                         
-                        // Break into chunks based on settings
                         if (line_count >= lines_per_page || i == all_lines.size() - 1) {
                             chunks.push_back(current_chunk_str);
                             
-                            // SCORE THIS CHUNK: How many words overlap with the spoken audio?
                             QString chunk_lower = current_chunk_str.toLower();
                             int score = 0;
                             for (const QString& word : chunk_lower.split(QRegularExpression("\\W+"), Qt::SkipEmptyParts)) {
@@ -1490,18 +1397,15 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                         }
                     }
 
-                    // If we found a matching stanza, push it live!
                     if (best_score > 0 && !best_chunk.isEmpty()) {
                         if (auto_push) {
                             HomeInRenderer* r = GetActiveRenderer();
                             if (r) {
-                                // The \x01 marker tells your renderer it is a Lyric, not a Bible Verse
                                 r->SetText("\x01" + best_chunk.toStdString());
                             }
                         }
 
                         if (auto_switch_tabs) {
-                            // Load the song into the Lyrics tab so the media team can take over
                             current_song = s;
                             current_song_lines.clear();
                             lyrics_verses_list->clear();
@@ -1511,7 +1415,6 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                                 lyrics_verses_list->addItem(c);
                             }
                             
-                            // Highlight the active verse in the UI
                             current_verse_index = best_index;
                             lyrics_verses_list->setCurrentRow(best_index);
                             
@@ -1519,7 +1422,6 @@ void HomeInDock::CheckForLyrics(const std::string& text) {
                             if (!current_song.artist.empty()) info += " (" + QString::fromStdString(current_song.artist) + ")";
                             lyrics_suggestion_label->setText(info);
                             
-                            // Jump to Lyrics Tab instead of Queue
                             tabs_widget->setCurrentIndex(2); 
                         }
                     }
@@ -1558,7 +1460,6 @@ void HomeInDock::CheckForReferences(const std::string& text) {
         const auto& ref = refs[0]; 
         current_search_book = ref.book;
         
-        // Safety: Clear before loading new range to prevent memory collisions
         current_chapter_verses.clear();
         
         if (ref.verse_end > ref.verse_start) {
@@ -1569,7 +1470,6 @@ void HomeInDock::CheckForReferences(const std::string& text) {
 
         if (!current_chapter_verses.empty()) {
             current_bible_verse_index = 0;
-            // If it's a chapter load, find the start verse
             if (ref.verse_end <= ref.verse_start) {
                 for (size_t j = 0; j < current_chapter_verses.size(); ++j) {
                     if (current_chapter_verses[j].verse == ref.verse_start) {
@@ -1579,7 +1479,6 @@ void HomeInDock::CheckForReferences(const std::string& text) {
                 }
             }
             
-            // Set the suggestion label to the FULL range for clarity
             QString full_ref = QString::fromUtf8(current_chapter_verses[0].book_name.c_str()) + " " +
                                QString::number(current_chapter_verses[0].chapter) + ":" +
                                QString::number(current_chapter_verses[0].verse);
@@ -1611,7 +1510,6 @@ void HomeInDock::CheckForReferences(const std::string& text) {
                 QMetaObject::invokeMethod(tabs_widget, "setCurrentIndex",
                                           Qt::QueuedConnection, Q_ARG(int, 1));
             
-            // Populate the list with all verses from this chapter
             bible_verses_list->clear();
             for (const auto& v : current_chapter_verses) {
                 bible_verses_list->addItem(QString::number(v.verse) + " " + QString::fromStdString(v.text));
@@ -1647,12 +1545,8 @@ void HomeInDock::ShowBibleSuggestion(const std::string& book, int chapter,
                                       int verse, const std::string& text) {
     QString ref = QString("%1 %2:%3").arg(QString::fromStdString(book)).arg(chapter).arg(verse);
     suggestion_label->setText(ref);
-    
-    // Instead of a separate view, we can highlight it in the list if the chapter is already loaded,
-    // or just show the text in the suggestion label or a tooltip.
-    // For now, let's just ensure it doesn't crash.
-    blog(LOG_INFO, "HomeIndeed: AI Suggestion - %s: %s", ref.toUtf8().constData(), text.c_str());
 }
+
 void HomeInDock::SearchLyrics(const std::string& query) {
     lyrics_results_list->clear();
     lyrics_results_list->setVisible(false);
@@ -1667,7 +1561,6 @@ void HomeInDock::SearchLyrics(const std::string& query) {
 void HomeInDock::PopulateAudioSources() {
     if (!audio_source_combo) return;
     
-    // REMEMBER current selection
     QString current_selection = audio_source_combo->currentText();
     
     audio_source_combo->blockSignals(true);
@@ -1688,7 +1581,6 @@ void HomeInDock::PopulateAudioSources() {
 
     obs_enum_sources(enum_proc, audio_source_combo);
 
-    // RESTORE selection
     int index = audio_source_combo->findText(current_selection);
     if (index != -1) {
         audio_source_combo->setCurrentIndex(index);
@@ -1709,7 +1601,7 @@ void HomeInDock::OnLyricsSearchChanged(const QString& text) {
 }
 
 void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
-    if (tabs_widget->currentIndex() != 2) return; // ONLY show in Lyrics tab!
+    if (tabs_widget->currentIndex() != 2) return; 
 
     lyrics_results_list->clear();
     lyrics_verses_list->clear();
@@ -1727,7 +1619,6 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
             QListWidgetItem* item = new QListWidgetItem(label, lyrics_results_list);
             item->setIcon(HomeInIcon((s.source == "LRCLIB") ? "globe" : "book-open", 16));
             
-            // FIX: Use QVariantMap so OnSongSelected can read it
             QVariantMap songData;
             songData["id"]      = s.id;
             songData["title"]   = QString::fromStdString(s.title);
@@ -1742,11 +1633,9 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
         else
             lyrics_suggestion_label->setText(QString("My Library (%1 songs):").arg(results.size()));
     } else if (results.size() == 1) {
-        // Only one result, show it directly
         lyrics_results_list->setVisible(false);
         QListWidgetItem dummy;
         
-        // FIX: Use QVariantMap for the dummy item
         const auto& s = results[0];
         QVariantMap songData;
         songData["id"]      = s.id;
@@ -1763,7 +1652,6 @@ void HomeInDock::ShowLyricsResults(const std::vector<SongLyric>& results) {
 void HomeInDock::OnSongSelected(QListWidgetItem* item) {
     if (!item) return;
     
-    // FIX: Read from the QVariantMap
     QVariantMap songData = item->data(Qt::UserRole).toMap();
     current_song.id      = songData["id"].toInt();
     current_song.title   = songData["title"].toString().toStdString();
@@ -1771,7 +1659,6 @@ void HomeInDock::OnSongSelected(QListWidgetItem* item) {
     current_song.content = songData["content"].toString().toStdString();
     current_song.source  = songData["source"].toString().toStdString();
     
-    // OPTIMIZATION: If content is empty (from browse metadata), fetch it now.
     if (current_song.content.empty()) {
         SongLyric full_song;
         if (lyrics_engine.GetDB().FindSong(current_song.title, current_song.artist, full_song)) {
@@ -1782,7 +1669,6 @@ void HomeInDock::OnSongSelected(QListWidgetItem* item) {
     current_song_lines.clear();
     lyrics_verses_list->clear();
     
-    // Split lyrics into chunks of N lines for the verse list
     QString qContent = QString::fromStdString(current_song.content).replace("\r\n", "\n");
     QStringList all_lines = qContent.split("\n", Qt::SkipEmptyParts);
     
@@ -1809,7 +1695,6 @@ void HomeInDock::OnSongSelected(QListWidgetItem* item) {
         lyrics_verses_list->setCurrentRow(0);
     }
     
-    // Update suggestion label to show song info
     QString info = QString::fromStdString(current_song.title);
     if (!current_song.artist.empty()) info += " (" + QString::fromStdString(current_song.artist) + ")";
     lyrics_suggestion_label->setText(info);
@@ -1856,7 +1741,7 @@ void HomeInDock::OnManualEntry() {
 
         if (lyrics_engine.GetDB().AddSong(title, artist, content, "Manual")) {
             QMessageBox::information(this, "Success", "Song added to your local library.");
-            OnLyricsSearchChanged(""); // Refresh list
+            OnLyricsSearchChanged(""); 
         } else {
             QMetaObject::invokeMethod(this, [this]() {
                 QMessageBox::critical(this, "Database Error", "Failed to save song to database.");
@@ -1874,7 +1759,6 @@ void HomeInDock::DetectionLoop() {
     while (detection_running) {
         std::string chunk;
         if (!transcript_queue->Pop(chunk, 150)) {
-            // Flush buffer on idle if it has content
             auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - last_push_time).count();
             if (idle_ms > kFlushIdleMs && !sentence_buffer.empty()) {
@@ -1884,17 +1768,14 @@ void HomeInDock::DetectionLoop() {
             continue;
         }
 
-        // Update the transcript UI
         QMetaObject::invokeMethod(this, "AppendTranscript",
             Qt::QueuedConnection, Q_ARG(std::string, chunk));
 
-        // Run detection on every individual chunk for sub-second responsiveness
         RunDetection(chunk);
 
         sentence_buffer += " " + chunk;
         last_push_time = std::chrono::steady_clock::now();
 
-        // Flush on sentence boundary (punctuation) or word count threshold
         bool has_punct = !chunk.empty() &&
             (chunk.back()=='.' || chunk.back()=='!' || chunk.back()=='?');
         int words = (int)std::count(sentence_buffer.begin(),
@@ -1909,24 +1790,18 @@ void HomeInDock::DetectionLoop() {
 void HomeInDock::RunDetection(const std::string& text) {
     if (text.empty()) return;
 
-    // --- NEW: VOICE CONTROLLED NAVIGATION ---
     std::string lower_text = text;
     std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
     
     if (lower_text.find("next verse") != std::string::npos || lower_text.find("verse after that") != std::string::npos) {
-        // Automatically click the 'Next' button in the UI
         QMetaObject::invokeMethod(bible_next_btn, "click", Qt::QueuedConnection);
-        blog(LOG_INFO, "HomeIndeed: Voice Command triggered 'Next Verse'");
-        return; // Skip normal detection
+        return; 
     }
     if (lower_text.find("previous verse") != std::string::npos || lower_text.find("go back a verse") != std::string::npos) {
-        // Automatically click the 'Previous' button in the UI
         QMetaObject::invokeMethod(bible_prev_btn, "click", Qt::QueuedConnection);
-        blog(LOG_INFO, "HomeIndeed: Voice Command triggered 'Previous Verse'");
-        return; // Skip normal detection
+        return; 
     }
 
-    // Layer 1 & 2: Direct reference regex
     std::vector<BibleRef> refs = ref_parser.Parse(text);
     bool found = false;
     for (const auto& ref : refs) {
@@ -1941,23 +1816,20 @@ void HomeInDock::RunDetection(const std::string& text) {
                 Q_ARG(std::string, v.text));
             found = true;
 
-            // AUTOMATIC QUEUEING
             if (auto_search) {
                 QMetaObject::invokeMethod(this, [this, v]() {
                     QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
                     if (!v.translation_abbr.empty()) label += " (" + QString::fromStdString(v.translation_abbr) + ")";
                     
-                    // NEW ANTI-SPAM LOGIC: Check if it's already the LAST item in the queue.
                     if (queue_list->count() > 0) {
                         QListWidgetItem* lastItem = queue_list->item(queue_list->count() - 1);
                         if (lastItem->text() == label) {
-                            return; // Stop spamming the exact same verse back to back
+                            return; 
                         }
                     }
 
-                    // ADD IT TO THE QUEUE
                     QListWidgetItem* item = new QListWidgetItem(label, queue_list);
-                    item->setData(Qt::UserRole + 2, false); // Bible
+                    item->setData(Qt::UserRole + 2, false); 
                     item->setIcon(HomeInIcon("book", 16));
                     
                     QVariantMap bibleData;
@@ -1969,9 +1841,7 @@ void HomeInDock::RunDetection(const std::string& text) {
                     item->setData(Qt::UserRole, bibleData);
                     
                     SaveQueue();
-                    blog(LOG_INFO, "HomeIndeed: Automatically queued %s", label.toUtf8().constData());
                     
-                    // AUTOMATIC PUSH
                     if (auto_push) {
                         HomeInRenderer* r = GetActiveRenderer();
                         if (r) {
@@ -1979,7 +1849,6 @@ void HomeInDock::RunDetection(const std::string& text) {
                         }
                     }
 
-                    // Update Bible Tab UI if auto-switch is on
                     if (auto_switch_tabs) {
                         current_search_book = v.book_name;
                         current_chapter_verses = bible_db.GetChapterVerses(v.book_name, v.chapter, CurrentTranslation());
@@ -1990,7 +1859,7 @@ void HomeInDock::RunDetection(const std::string& text) {
                             }
                         }
                         
-                        tabs_widget->setCurrentIndex(1); // Bible Tab
+                        tabs_widget->setCurrentIndex(1); 
                         bible_grid_container->setVisible(false);
                         bible_verses_list->clear();
                         for (const auto& bv : current_chapter_verses) {
@@ -2004,7 +1873,6 @@ void HomeInDock::RunDetection(const std::string& text) {
         }
     }
 
-    // Layer 3: Fuzzy search if no direct match and text is substantial
     if (!found && text.length() > 25) { 
         std::vector<BibleVerse> fuzzy = bible_db.SearchVerses(text, 1);
         if (!fuzzy.empty()) {
@@ -2016,7 +1884,6 @@ void HomeInDock::RunDetection(const std::string& text) {
                 Q_ARG(int, v.verse),
                 Q_ARG(std::string, v.text));
             
-            // AUTOMATIC QUEUEING (Fuzzy)
             if (auto_search) {
                 QMetaObject::invokeMethod(this, [this, v]() {
                     QString label = QString::fromStdString(v.book_name) + " " + QString::number(v.chapter) + ":" + QString::number(v.verse);
@@ -2025,13 +1892,12 @@ void HomeInDock::RunDetection(const std::string& text) {
                     if (queue_list->count() > 0) {
                         QListWidgetItem* lastItem = queue_list->item(queue_list->count() - 1);
                         if (lastItem->text() == label) {
-                            return; // Stop spamming the exact same verse back to back
+                            return; 
                         }
                     }
 
-                    // ADD IT TO THE QUEUE
                     QListWidgetItem* item = new QListWidgetItem(label, queue_list);
-                    item->setData(Qt::UserRole + 2, false); // Bible
+                    item->setData(Qt::UserRole + 2, false); 
                     item->setIcon(HomeInIcon("book", 16));
                     
                     QVariantMap bibleData;
@@ -2048,9 +1914,9 @@ void HomeInDock::RunDetection(const std::string& text) {
         }
     }
 
-    // Check lyrics
     CheckForLyrics(text);
 }
+
 void HomeInDock::SaveQueue() {
     QSettings settings("HomeIndeed", "Plugin");
     QVariantList saved_items;
@@ -2077,7 +1943,6 @@ void HomeInDock::LoadQueue() {
         item->setData(Qt::UserRole + 2, data["isLyrics"]);
         item->setData(Qt::UserRole, data["payload"]);
         
-        // Restore icons
         if (data["isLyrics"].toBool()) {
             item->setIcon(HomeInIcon("music", 16));
         } else {
@@ -2104,4 +1969,3 @@ void HomeInDock::ApplySavedAudioSource() {
         }
     }
 }
-

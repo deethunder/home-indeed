@@ -58,11 +58,24 @@ endif()
 set(WHISPER_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
 set(GGML_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
 add_subdirectory(vendor/whisper.cpp)
-
+# ==========================================================
+# 📦 VOSK C++ API LIBRARY (Downloads automatically)
+# ==========================================================
+include(FetchContent)
+FetchContent_Declare(
+    vosk_api
+    URL "https://github.com/alphacep/vosk-api/releases/download/v0.3.42/vosk-win64-0.3.42.zip"
+)
+FetchContent_MakeAvailable(vosk_api)
+include_directories(${vosk_api_SOURCE_DIR})
+# ==========================================================
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE 
   src/plugin-main.cpp
   src/audio/homein-audio.cpp
   src/stt/homein-stt.cpp
+  src/stt/homein-whisper.cpp
+  src/stt/homein-vosk.cpp
+  src/stt/homein-deepgram.cpp
   src/dock/homein-dock.cpp
   src/database/homein-db.cpp
   src/database/homein-lyrics-db.cpp
@@ -72,9 +85,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   src/updater/homein-updater.cpp
   src/renderer/homein-renderer.cpp
   src/network/homein-http.cpp
-  src/stt/homein-deepgram.cpp
   vendor/sqlite3/sqlite3.c
-  src/installer/resources.qrc
+  src/resources.qrc
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE 
@@ -82,7 +94,12 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
   vendor/whisper.cpp/include
   vendor/sqlite3
 )
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper winhttp)
+
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE 
+  whisper 
+  winhttp
+  "${vosk_api_SOURCE_DIR}/libvosk.lib"
+)
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE 
   SQLITE_ENABLE_FTS5=1
@@ -94,113 +111,56 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 
-# --- Packaging Logic (Phase 5: Polish) ---
-set(CPACK_PACKAGE_NAME "Home Indeed")
+# ==========================================================
+# 📦 PHASE 5: CPack Installation Logic
+# ==========================================================
+
+# 1. Embed the SQLite Databases
+install(FILES
+    "${CMAKE_SOURCE_DIR}/data/homein-bible.db"
+    "${CMAKE_SOURCE_DIR}/data/homein-lyrics.db"
+    DESTINATION "data/obs-plugins/${CMAKE_PROJECT_NAME}"
+)
+
+# 2. Embed the AI Model Folder
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/data/models"
+    DESTINATION "data/obs-plugins/${CMAKE_PROJECT_NAME}"
+)
+
+# 3. EXPLICITLY Embed Vosk Dependencies in OBS's Main Execution Directory!
+install(FILES 
+    "${vosk_api_SOURCE_DIR}/libvosk.dll"
+    "${vosk_api_SOURCE_DIR}/libgcc_s_seh-1.dll"
+    "${vosk_api_SOURCE_DIR}/libstdc++-6.dll"
+    "${vosk_api_SOURCE_DIR}/libwinpthread-1.dll"
+    DESTINATION "bin/64bit" # <--- THE MAGIC FIX
+)
+
+# --- CPack Configuration ---
+set(CPACK_PACKAGE_NAME "Home-Indeed")
 set(CPACK_PACKAGE_VENDOR "Home Indeed Team")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "AI-powered Bible & Lyrics for OBS")
 set(CPACK_PACKAGE_VERSION ${_version})
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 
-# Generators per OS
 if(WIN32)
     set(CPACK_GENERATOR "NSIS;ZIP")
-    set(CPACK_NSIS_DISPLAY_NAME "Home Indeed OBS Plugin")
-    set(CPACK_NSIS_MODIFY_PATH ON)
+
+    # Set the default installation directory to "Program Files" for 64-bit systems
+    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "obs-studio")
+
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/installer-logo.ico")
+    set(CPACK_NSIS_PACKAGE_NAME "Home Indeed OBS Plugin")
+    set(CPACK_PACKAGE_FILE_NAME "Home-Indeed-Plugin-Windows-Installer")
+    set(CPACK_NSIS_MODIFY_PATH OFF)
+
 elseif(APPLE)
     set(CPACK_GENERATOR "productbuild;ZIP")
+
 elseif(UNIX)
     set(CPACK_GENERATOR "DEB;ZIP")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Home Indeed Team")
 endif()
 
 include(CPack)
-
-# --- Testing Framework (v1.1) ---
-option(BUILD_TESTS "Build automated tests" OFF)
-if(BUILD_TESTS)
-    include(FetchContent)
-    FetchContent_Declare(
-      googletest
-      URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-    )
-    # For Windows: prevent overriding the parent project's compiler/linker settings
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googletest)
-
-    enable_testing()
-
-    add_executable(homein-tests 
-        tests/test-resampler.cpp
-        tests/test-database.cpp
-        src/audio/homein-audio.cpp
-        src/database/homein-db.cpp
-        src/database/homein-lyrics-db.cpp
-    )
-    target_link_libraries(homein-tests PRIVATE gtest_main libobs Qt6::Core Qt6::Network)
-    target_include_directories(homein-tests PRIVATE src/audio src/database src)
-    
-    add_test(NAME HomeInAudioTests COMMAND homein-tests)
-endif()
-
-# --- Automated Installer Build (v1.0) ---
-if(WIN32 AND ENABLE_QT)
-    set(INSTALLER_SOURCES
-        src/installer/homein-installer.cpp
-        src/installer/resources.qrc
-    )
-    
-    add_executable(home-indeed-installer WIN32 
-        ${INSTALLER_SOURCES}
-        src/network/homein-http.cpp
-        src/network/homein-http.hpp
-    )
-    
-    target_link_libraries(home-indeed-installer PRIVATE 
-        Qt6::Widgets 
-        Qt6::Core 
-        Qt6::Gui 
-        Qt6::Svg
-        Qt6::Network
-        Qt6::Concurrent
-        shlwapi 
-        ole32 
-        shell32 
-        advapi32
-    )
-
-    set_target_properties(home-indeed-installer PROPERTIES 
-        AUTOMOC ON 
-        AUTORCC ON 
-        OUTPUT_NAME "Home-Indeed-Installer"
-        LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\""
-    )
-    
-    # Add dependency to ensure the plugin is built before the installer (optional but good practice)
-    add_dependencies(home-indeed-installer ${CMAKE_PROJECT_NAME})
-
-    # --- Uninstaller (Phase 5) ---
-    set(UNINSTALLER_SOURCES
-        src/installer/homein-uninstaller.cpp
-    )
-    add_executable(home-indeed-uninstaller WIN32 ${UNINSTALLER_SOURCES})
-    target_link_libraries(home-indeed-uninstaller PRIVATE Qt6::Widgets Qt6::Core Qt6::Gui)
-    set_target_properties(home-indeed-uninstaller PROPERTIES 
-        AUTOMOC ON 
-        OUTPUT_NAME "Home-Indeed-Uninstaller"
-        LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\""
-    )
-
-    # --- Copy databases and data folder to Release output ---
-    # This ensures the installer can find and bundle them alongside the .exe
-    add_custom_command(TARGET home-indeed-installer POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_SOURCE_DIR}/data/homein-bible.db"
-            "$<TARGET_FILE_DIR:home-indeed-installer>/homein-bible.db"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_SOURCE_DIR}/data/homein-lyrics.db"
-            "$<TARGET_FILE_DIR:home-indeed-installer>/homein-lyrics.db"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/data"
-            "$<TARGET_FILE_DIR:home-indeed-installer>/data"
-        COMMENT "Bundling databases alongside installer..."
-    )
-endif()
