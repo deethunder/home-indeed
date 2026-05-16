@@ -72,7 +72,6 @@ jobs:
           fi
 
   macos-build:
-    if: false # BYPASS MACOS BUILD TEMPORARILY
     name: Build for macOS 🍏
     runs-on: macos-15
     needs: check-event
@@ -111,6 +110,10 @@ jobs:
 
           print "pluginName=${product_name}" >> $GITHUB_OUTPUT
           print "pluginVersion=${product_version}" >> $GITHUB_OUTPUT
+      
+          print '::group::Force Script Permissions'
+          chmod -R +x .github/scripts build-aux .github/actions || true
+          print '::endgroup::'
 
       - uses: actions/cache/restore@v4
         id: ccache-cache
@@ -176,7 +179,6 @@ jobs:
           key: ${{ runner.os }}-ccache-${{ needs.check-event.outputs.config }}
 
   ubuntu-build:
-    if: false # BYPASS UBUNTU BUILD TEMPORARILY
     name: Build for Ubuntu 🐧
     strategy:
       matrix:
@@ -256,7 +258,11 @@ jobs:
         with:
           path: ${{ github.workspace }}/.ccache
           key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
-
+          
+          echo "::group::Force Script Permissions"
+          chmod -R +x .github/scripts build-aux .github/actions || true
+          echo "::endgroup::"
+          
   windows-build:
     name: Build for Windows 🪟
     runs-on: windows-2022
@@ -284,11 +290,26 @@ jobs:
           "pluginName=${ProductName}" >> $env:GITHUB_OUTPUT
           "pluginVersion=${ProductVersion}" >> $env:GITHUB_OUTPUT
 
-      - name: Download Premium AI Model Assets 📥
+      - name: Auto-Detect and Download AI Models 📥
         run: |
           New-Item -ItemType Directory -Force -Path "data/models"
-          Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin" -OutFile "data/models/ggml-small.en.bin"
-          Write-Host "Premium high-accuracy model (small.en) downloaded for packaging."
+          
+          # Read the C++ UI code to see which engine the developer selected
+          $DockCode = Get-Content -Path "src/dock/homein-dock.cpp" -Raw
+          
+          if ($DockCode -match 'ACTIVE_STT_ENGINE\s*=\s*STTEngineType::WHISPER_LOCAL') {
+              Write-Host "🧠 Detected WHISPER_LOCAL in code. Downloading Whisper models..."
+              Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" -OutFile "data/models/ggml-base.en.bin"
+          }
+          elseif ($DockCode -match 'ACTIVE_STT_ENGINE\s*=\s*STTEngineType::VOSK_LOCAL') {
+              Write-Host "🧠 Detected VOSK_LOCAL in code. Downloading Vosk models..."
+              Invoke-WebRequest -Uri "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip" -OutFile "vosk.zip"
+              Expand-Archive -Path "vosk.zip" -DestinationPath "data/models"
+              Remove-Item "vosk.zip"
+          }
+          else {
+              Write-Host "☁️ Detected DEEPGRAM_CLOUD in code. No local models required. Skipping download."
+          }
 
       - name: Build Plugin 🧱
         uses: ./.github/actions/build-plugin

@@ -22,7 +22,8 @@ namespace HomeIn {
         std::wstring wHost(urlComp.lpszHostName, urlComp.dwHostNameLength);
         std::wstring wPath(urlComp.lpszUrlPath, urlComp.dwUrlPathLength);
 
-        hSession = WinHttpOpen(L"HomeIndeed/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        // Use a standard Chrome User-Agent to bypass Cloudflare/Bot protection
+        hSession = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         if (hSession) {
             hConnect = WinHttpConnect(hSession, wHost.c_str(), urlComp.nPort, 0);
         }
