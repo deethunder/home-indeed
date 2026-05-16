@@ -66,6 +66,7 @@ runs:
       working-directory: ${{ inputs.workingDirectory }}
       env:
         CCACHE_DIR: ${{ inputs.workingDirectory }}/.ccache
+        CMAKE_EXTRA_ARGS: ${{ inputs.cmakeArgs }}
       run: |
         : Run Ubuntu Build
 
@@ -74,7 +75,7 @@ runs:
           --config ${{ inputs.config }}
         )
         if (( ${+RUNNER_DEBUG} )) build_args+=(--debug)
-        if [[ -n '${{ inputs.cmakeArgs }}' ]] build_args+=(--cmake-args '${{ inputs.cmakeArgs }}')
+        if [[ -n "${CMAKE_EXTRA_ARGS}" ]] build_args+=(--cmake-args "${CMAKE_EXTRA_ARGS}")
 
         .github/scripts/build-ubuntu ${build_args}
 
