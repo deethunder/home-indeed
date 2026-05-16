@@ -163,28 +163,35 @@ int HomeInImporter::ExecuteImportQuery(sqlite3* ew_db, const std::string& query,
             total_rows++;
             const char* raw_title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
             
-            // Read lyrics as BLOB to handle binary RTF
+            // Read lyrics as BLOB to handle binary RTF and text
             const unsigned char* blob = (const unsigned char*)sqlite3_column_blob(stmt, 1);
             int bytes = sqlite3_column_bytes(stmt, 1);
             
-            if (!raw_title || !blob || bytes < 5) continue;
+            if (!raw_title || !blob || bytes == 0) continue;
 
-            // Manual check for RTF signature in binary blob
+            // Check for RTF signature in binary blob
             bool is_rtf = false;
-            for (int i = 0; i < bytes - 5; ++i) {
-                if (blob[i] == '{' && blob[i+1] == '\\' && blob[i+2] == 'r' && blob[i+3] == 't' && blob[i+4] == 'f') {
-                    is_rtf = true;
-                    break;
+            if (bytes >= 5) {
+                for (int i = 0; i < bytes - 5; ++i) {
+                    if (blob[i] == '{' && blob[i+1] == '\\' && blob[i+2] == 'r' && blob[i+3] == 't' && blob[i+4] == 'f') {
+                        is_rtf = true;
+                        break;
+                    }
                 }
             }
-            if (!is_rtf) continue;
 
             QString title = QString::fromUtf8(raw_title);
-            // Convert blob to string for the RTF parser
-            QString rtf_content = QString::fromUtf8((const char*)blob, bytes);
-            QString lyrics = StripRTF(rtf_content);
+            QString raw_content = QString::fromUtf8((const char*)blob, bytes);
+            QString lyrics;
+
+            // FIX: Correctly handle both formats without a Type Mismatch!
+            if (is_rtf) {
+                lyrics = StripRTF(raw_content);
+            } else {
+                lyrics = QString::fromStdString(StripFormatting(raw_content));
+            }
             
-            if (lyrics.isEmpty()) continue;
+            if (lyrics.trimmed().isEmpty()) continue;
 
             QString author = "";
             if (has_author) {
@@ -205,7 +212,7 @@ int HomeInImporter::ExecuteImportQuery(sqlite3* ew_db, const std::string& query,
         lyrics_db.RebuildFTS();
     }
 
-    blog(LOG_INFO, "HomeIndeed: Query complete. Found %d rows total, %d songs matched RTF signature and were imported.", total_rows, count);
+    blog(LOG_INFO, "HomeIndeed: Query complete. Found %d rows total, %d songs imported.", total_rows, count);
     return count;
 }
 

@@ -168,13 +168,6 @@ void HomeInAudioHandler::ProcessAudio(struct obs_audio_data* audio) {
             current_level.store(prev_level * 0.8f + max_peak * 0.2f);
         }
 
-        // DEBUG: Log activity if we see ANY signal
-        int log_counter = 0;
-        if (max_peak > 0.0001f && log_counter++ % 100 == 0) {
-            blog(LOG_INFO, "HomeIndeed Audio: Peak=%f (VAD Threshold=%f, Gate=%s)", 
-                 max_peak, VAD_THRESHOLD, gate_open ? "OPEN" : "CLOSED");
-        }
-
         // 2. High-Quality Resample
         if (max_peak > VAD_THRESHOLD) {
             silent_frames = 0;

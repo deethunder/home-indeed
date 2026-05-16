@@ -14,6 +14,8 @@ public:
     
     virtual bool Initialize(const std::string& config) = 0;
     virtual void Start(TranscriptCallback callback) = 0;
+    // Allows cloud engines to receive dynamic vocabulary boosts
+    virtual void SetKeywords(const std::vector<std::string>& keywords) { (void)keywords; }
     virtual void Stop() = 0;
     
     virtual void SetPaused(bool paused) = 0;

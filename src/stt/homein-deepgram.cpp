@@ -64,19 +64,29 @@ void DeepgramSTTProvider::RunLoop() {
     hConnect = WinHttpConnect(hSession, L"api.deepgram.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (!hConnect) { blog(LOG_ERROR, "Deepgram: WinHttpConnect failed"); return; }
 
-    // Deepgram URL with all optimizations from Rhema research
-   std::wstring path =
-        L"/v1/listen"
-        L"?model=nova-2"           // Use the stable model
-        L"&smart_format=true"
-        L"&dictation=true"         // Forces "Zechariah 5:1" instead of garbled text
-        L"&interim_results=true"
-        L"&endpointing=300"
-        L"&encoding=linear16"
-        L"&sample_rate=16000"
-        L"&channels=1";
-    hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
-    if (!hRequest) return;
+    // Prepare headers (Line 95)
+        std::wstring headers = L"Authorization: Token " + std::wstring(api_key.begin(), api_key.end()) + L"\r\n";
+
+        // 1. Build the base Deepgram URL (Replaced Line 98)
+        std::string path = "/v1/listen?model=nova-2&smart_format=true";
+
+        // 2. Inject all custom keywords from the databases with a high boost (+3)
+        for (const std::string& kw : custom_keywords) {
+            std::string clean_kw = kw;
+            // Basic URL Encoding (Replace spaces with %20)
+            size_t pos = 0;
+            while ((pos = clean_kw.find(" ", pos)) != std::string::npos) {
+                clean_kw.replace(pos, 1, "%20");
+                pos += 3;
+            }
+            path += "&keywords=" + clean_kw + ":3"; // :3 applies a strong bias
+        }
+
+        // 3. Convert to wide string for WinHTTP
+        std::wstring wPath(path.begin(), path.end());
+
+        // Create the WebSocket request (Line 100)
+        hRequest = WinHttpOpenRequest(hConnect, L"GET", wPath.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
 
     // Robust Authorization header (using wide string conversion like HttpClient)
     wchar_t wKey[256] = {0};

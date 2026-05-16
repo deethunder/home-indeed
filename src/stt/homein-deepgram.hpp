@@ -22,6 +22,7 @@ public:
 
     bool Initialize(const std::string& api_key) override;
     void Start(TranscriptCallback callback) override;
+    void SetKeywords(const std::vector<std::string>& keywords) override { custom_keywords = keywords; }
     void Stop() override;
 
     void SetPaused(bool paused) override { is_paused = paused; }
@@ -30,6 +31,7 @@ public:
 
     std::string GetName() const override { return "Deepgram (Cloud)"; }
     bool IsCloud() const override { return true; }
+
 
 private:
     void RunLoop();
@@ -41,6 +43,7 @@ private:
     std::thread receive_thread;
     std::atomic<bool> running{false};
     std::atomic<bool> is_paused{false};
+    std::vector<std::string> custom_keywords;
     TranscriptCallback on_transcript;
 
     HINTERNET hSession = NULL;

@@ -93,10 +93,15 @@ bool HomeInLyricsDB::AddSong(const std::string& title, const std::string& artist
                               const std::string& content, const std::string& source) {
     if (!db) return false;
 
+    // FIX: Check if it already exists to prevent SQLite from cloning duplicates!
+    SongLyric existing;
+    if (FindSong(title, artist, existing)) {
+        return true; 
+    }
+
     // INSERT OR REPLACE triggers DELETE then INSERT, which keeps FTS in sync
-    // via the triggers created in EnsureSchema().
     const char* sql =
-        "INSERT OR REPLACE INTO lyrics (title, artist, content, source) "
+        "INSERT INTO lyrics (title, artist, content, source) "
         "VALUES (?, ?, ?, ?)";
     sqlite3_stmt* stmt;
 

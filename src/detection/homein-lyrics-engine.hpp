@@ -35,13 +35,8 @@ public:
     void GetLocalLibrary(SearchCallback callback);
 
 private:
-    // FIX #6: Removed FetchFromLRCLIB(). The old implementation called
-    // QNetworkAccessManager::get() from a detached std::thread, which is
-    // undefined behaviour (QNAM is not thread-safe). It also used QEventLoop
-    // inside that worker thread which deadlocks because there is no Qt event
-    // loop running there. Replaced with a proper signal/slot async pattern
-    // that stays on the Qt main thread throughout.
-    void FetchFromLRCLIB(const std::string& query, SearchCallback callback);
+    // Scrapes Genius HTML first, falls back to LRCLIB if not found
+    void FetchFromWeb(const std::string& query, SearchCallback callback);
 
     HomeInLyricsDB local_db;
     QNetworkAccessManager network_manager;

@@ -299,7 +299,7 @@ jobs:
           
           if ($DockCode -match 'ACTIVE_STT_ENGINE\s*=\s*STTEngineType::WHISPER_LOCAL') {
               Write-Host "🧠 Detected WHISPER_LOCAL in code. Downloading Whisper models..."
-              Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin" -OutFile "data/models/ggml-small.en.bin"
+              Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" -OutFile "data/models/ggml-base.en.bin"
           }
           elseif ($DockCode -match 'ACTIVE_STT_ENGINE\s*=\s*STTEngineType::VOSK_LOCAL') {
               Write-Host "🧠 Detected VOSK_LOCAL in code. Downloading Vosk models..."

@@ -77,6 +77,11 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   src/stt/homein-vosk.cpp
   src/stt/homein-deepgram.cpp
   src/dock/homein-dock.cpp
+  src/tabs/homein-transcript-tab.cpp
+  src/tabs/homein-bible-tab.cpp
+  src/tabs/homein-lyrics-tab.cpp
+  src/tabs/homein-queue-tab.cpp
+  src/tabs/homein-settings-tab.cpp
   src/database/homein-db.cpp
   src/database/homein-lyrics-db.cpp
   src/database/homein-importer.cpp
@@ -152,7 +157,7 @@ if(WIN32)
 
     set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/installer-logo.ico")
     set(CPACK_NSIS_PACKAGE_NAME "Home Indeed OBS Plugin")
-    set(CPACK_PACKAGE_FILE_NAME "Home-Indeed-Plugin-Windows-Installer")
+    set(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}-${_version}-windows-x64-Installer")
     set(CPACK_NSIS_MODIFY_PATH OFF)
 
 elseif(APPLE)
