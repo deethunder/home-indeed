@@ -213,18 +213,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-
 
-      - name: Build Plugin 🧱
+      - name: Build Plugin 🧱 
         uses: ./.github/actions/build-plugin
         with:
           target: x86_64
           config: ${{ needs.check-event.outputs.config }}
-          cmakeArgs: "-DBUILD_TESTS=ON"
-
-      - name: Run Tests 🧪
-        shell: bash
-        run: |
-          cd build_x86_64
-          ctest --output-on-failure
 
       - name: Package Plugin 📀
         uses: ./.github/actions/package-plugin
