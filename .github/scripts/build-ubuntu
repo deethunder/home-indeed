@@ -59,6 +59,7 @@ build() {
   local config='RelWithDebInfo'
   local -r -a _valid_configs=(Debug RelWithDebInfo Release MinSizeRel)
   local -i codesign=0
+  local extra_cmake_args=''
 
   local -r -a _valid_generators=(Ninja 'Unix Makefiles')
   local generator='Ninja'
@@ -97,7 +98,7 @@ ${_usage_host:-}"
   local -a args
   while (( # )) {
     case ${1} {
-      -t|--target|-c|--config|--generator)
+      -t|--target|-c|--config|--generator|--cmake-args)
         if (( # == 1 )) || [[ ${2:0:1} == '-' ]] {
           log_error "Missing value for option %B${1}%b"
           log_output ${_usage}
@@ -142,6 +143,10 @@ ${_usage_host:-}"
           exit 2
         }
         generator=${2}
+        shift 2
+        ;;
+      --cmake-args)
+        extra_cmake_args="${2}"
         shift 2
         ;;
       --print-config) print_config=1; skips+=(deps); shift ;;
@@ -212,6 +217,10 @@ ${_usage_host:-}"
 
         cmake_install_args+=(build_${target##*-} --prefix ${project_root}/release/${config})
         ;;
+    }
+
+    if [[ -n "${extra_cmake_args}" ]] {
+      cmake_args+=(${(z)extra_cmake_args})
     }
 
     log_debug "Attempting to configure with CMake arguments: ${cmake_args}"
