@@ -1,9 +1,12 @@
 #pragma once
 #include "ISTTProvider.hpp"
-#include <vosk_api.h>
 #include <string>
 #include <thread>
 #include <atomic>
+
+#ifdef _WIN32
+#include <vosk_api.h>
+#endif
 
 class HomeInVoskEngine : public ISTTProvider {
 public:

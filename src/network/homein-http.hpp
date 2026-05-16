@@ -1,13 +1,12 @@
 #pragma once
 #include <string>
+#include <functional>
+
 #ifdef _WIN32
 #include <windows.h>
-#endif
 #include <winhttp.h>
-
 #pragma comment(lib, "winhttp.lib")
-
-#include <functional>
+#endif
 
 namespace HomeIn {
     class HttpClient {

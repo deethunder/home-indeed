@@ -58,23 +58,23 @@ endif()
 set(WHISPER_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
 set(GGML_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
 add_subdirectory(vendor/whisper.cpp)
-# ==========================================================
-# 📦 VOSK C++ API LIBRARY (Downloads automatically)
-# ==========================================================
-include(FetchContent)
-FetchContent_Declare(
-    vosk_api
-    URL "https://github.com/alphacep/vosk-api/releases/download/v0.3.42/vosk-win64-0.3.42.zip"
-)
-FetchContent_MakeAvailable(vosk_api)
-include_directories(${vosk_api_SOURCE_DIR})
-# ==========================================================
+
+# VOSK C++ API LIBRARY
+if(WIN32)
+  include(FetchContent)
+  FetchContent_Declare(
+      vosk_api
+      URL "https://github.com/alphacep/vosk-api/releases/download/v0.3.42/vosk-win64-0.3.42.zip"
+  )
+  FetchContent_MakeAvailable(vosk_api)
+  include_directories(${vosk_api_SOURCE_DIR})
+endif()
+
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE 
   src/plugin-main.cpp
   src/audio/homein-audio.cpp
   src/stt/homein-stt.cpp
   src/stt/homein-whisper.cpp
-  src/stt/homein-vosk.cpp
   src/stt/homein-deepgram.cpp
   src/dock/homein-dock.cpp
   src/tabs/homein-transcript-tab.cpp
@@ -94,17 +94,25 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   src/resources.qrc
 )
 
+if (WIN32)
+  target_sources(${CMAKE_PROJECT_NAME} PRIVATE 
+    src/stt/homein-vosk.cpp
+  )
+
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE 
   src
   vendor/whisper.cpp/include
   vendor/sqlite3
 )
 
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE 
-  whisper 
-  winhttp
-  "${vosk_api_SOURCE_DIR}/libvosk.lib"
-)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE whisper)
+
+if(WIN32)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE 
+    winhttp
+    "${vosk_api_SOURCE_DIR}/libvosk.lib"
+  )
+endif()
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE 
   SQLITE_ENABLE_FTS5=1
@@ -116,10 +124,7 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 
-# ==========================================================
-# 📦 PHASE 5: CPack Installation Logic
-# ==========================================================
-
+# PHASE 5: CPack Installation Logic
 # 1. Embed the SQLite Databases
 install(FILES
     "${CMAKE_SOURCE_DIR}/data/homein-bible.db"
@@ -133,13 +138,15 @@ install(DIRECTORY "${CMAKE_SOURCE_DIR}/data/models"
 )
 
 # 3. EXPLICITLY Embed Vosk Dependencies in OBS's Main Execution Directory!
-install(FILES 
-    "${vosk_api_SOURCE_DIR}/libvosk.dll"
-    "${vosk_api_SOURCE_DIR}/libgcc_s_seh-1.dll"
-    "${vosk_api_SOURCE_DIR}/libstdc++-6.dll"
-    "${vosk_api_SOURCE_DIR}/libwinpthread-1.dll"
-    DESTINATION "bin/64bit" # <--- THE MAGIC FIX
-)
+if(WIN32)
+  install(FILES 
+      "${vosk_api_SOURCE_DIR}/libvosk.dll"
+      "${vosk_api_SOURCE_DIR}/libgcc_s_seh-1.dll"
+      "${vosk_api_SOURCE_DIR}/libstdc++-6.dll"
+      "${vosk_api_SOURCE_DIR}/libwinpthread-1.dll"
+      DESTINATION "bin/64bit"
+  )
+endif()
 
 # --- CPack Configuration ---
 set(CPACK_PACKAGE_NAME "Home-Indeed")
