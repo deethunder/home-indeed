@@ -1,12 +1,9 @@
 #pragma once
 #include "ISTTProvider.hpp"
+#include <vosk_api.h>   // no guard needed
 #include <string>
 #include <thread>
 #include <atomic>
-
-#ifdef _WIN32
-#include <vosk_api.h>
-#endif
 
 class HomeInVoskEngine : public ISTTProvider {
 public:
@@ -26,10 +23,8 @@ public:
 
 private:
     void RunLoop();
-
     VoskModel *model = nullptr;
     VoskRecognizer *recognizer = nullptr;
-    
     std::thread worker_thread;
     std::atomic<bool> running{false};
     std::atomic<bool> is_paused{false};
