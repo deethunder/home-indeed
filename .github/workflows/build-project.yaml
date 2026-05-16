@@ -259,10 +259,6 @@ jobs:
           path: ${{ github.workspace }}/.ccache
           key: ${{ runner.os }}-${{ matrix.os }}-ccache-x86_64-${{ needs.check-event.outputs.config }}
           
-          echo "::group::Force Script Permissions"
-          chmod -R +x .github/scripts build-aux .github/actions || true
-          echo "::endgroup::"
-          
   windows-build:
     name: Build for Windows 🪟
     runs-on: windows-2022
