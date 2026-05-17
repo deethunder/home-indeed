@@ -253,11 +253,13 @@ int HomeInImporter::ImportFile(const QString& file_path) {
     while (!xml.atEnd() && !xml.hasError()) {
         QXmlStreamReader::TokenType token = xml.readNext();
         if (token == QXmlStreamReader::StartElement) {
-            if (xml.name() == "title") {
-                title = xml.readElementText().toStdString();
-            } else if (xml.name() == "author") {
+            if (xml.name() == QLatin1String("title")) {
+                if (xml.name() == QLatin1String("title")) {
+                    title = xml.readElementText().toStdString();
+                }
+            } else if (xml.name() == QLatin1String("author")) {
                 artist = xml.readElementText().toStdString();
-            } else if (xml.name() == "lines") {
+            } else if (xml.name() == QLatin1String("lines")) {
                 content += StripFormatting(xml.readElementText(QXmlStreamReader::IncludeChildElements)) + "\n";
             }
         }

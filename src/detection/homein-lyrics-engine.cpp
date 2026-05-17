@@ -1,4 +1,6 @@
 #include "homein-lyrics-engine.hpp"
+#include <QtConcurrent/QtConcurrent>
+#include <QtCore/QtCore>
 #include <obs-module.h>
 #include "network/homein-http.hpp"
 #include <QJsonDocument>
