@@ -3,7 +3,8 @@ param(
     [ValidateSet('x64')]
     [string] $Target = 'x64',
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release', 'MinSizeRel')]
-    [string] $Configuration = 'RelWithDebInfo'
+    [string] $Configuration = 'RelWithDebInfo',
+    [switch] $Package
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,17 +69,25 @@ function Package {
     }
     Compress-Archive -Force @CompressArgs
 
-    # --- Bundle the custom .exe installer into the release ---
-    Log-Group "Packaging installer .exe..."
-    $BuildDir = "${ProjectRoot}/build_${Target}"
-    $InstallerExe = Get-ChildItem -Path "${BuildDir}" -Recurse -Filter "Home-Indeed-Installer.exe" -ErrorAction SilentlyContinue | Where-Object { $_.DirectoryName -like "*${Configuration}*" -or $_.DirectoryName -like "*Release*" } | Select-Object -First 1
+    if ($Package) {
+        Log-Group "Building NSIS installer..."
+        $BuildDir = "${ProjectRoot}/build_${Target}"
+        Invoke-External cmake --build $BuildDir --config $Configuration --target package
 
-    if ($InstallerExe) {
-        $ExeOutputName = "${ProductName}-${ProductVersion}-windows-${Target}.exe"
-        Copy-Item -Path $InstallerExe.FullName -Destination "${ProjectRoot}/release/${ExeOutputName}" -Force
-        Write-Host "  => Installer .exe packaged: ${ExeOutputName}" -ForegroundColor Green
+        Log-Group "Publishing installer .exe..."
+        $InstallerExe = Get-ChildItem -Path $BuildDir -Recurse -Filter "${ProductName}-${ProductVersion}-windows-${Target}*.exe" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+        if ($InstallerExe) {
+            $ExeOutputName = "${ProductName}-${ProductVersion}-windows-${Target}-Installer.exe"
+            Copy-Item -Path $InstallerExe.FullName -Destination "${ProjectRoot}/release/${ExeOutputName}" -Force
+            Write-Host "  => Installer .exe packaged: ${ExeOutputName}" -ForegroundColor Green
+        } else {
+            Write-Warning "NSIS installer .exe not found in build directory. Skipping .exe publishing."
+        }
     } else {
-        Write-Warning "Home-Indeed-Installer.exe not found in build directory. Skipping .exe packaging."
+        Write-Host "  => Installer packaging disabled. ZIP artifact only." -ForegroundColor Yellow
     }
 
     Log-Group

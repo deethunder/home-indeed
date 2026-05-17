@@ -37,7 +37,7 @@ inputs:
     required: false
     default: ''
   package:
-    description: Create Windows or macOS installation package
+    description: Create platform installer package
     required: false
     default: 'false'
   workingDirectory:
@@ -108,6 +108,7 @@ runs:
         $PackageArgs = @{
           Target = '${{ inputs.target }}'
           Configuration = '${{ inputs.config }}'
+          Package = '${{ inputs.package }}' -eq 'true'
         }
 
         .github/scripts/Package-Windows.ps1 @PackageArgs
