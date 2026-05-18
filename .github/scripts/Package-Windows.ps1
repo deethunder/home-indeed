@@ -97,7 +97,7 @@ function Package {
             Copy-Item -Path $InstallerExe.FullName -Destination "${ProjectRoot}/release/${ExeOutputName}" -Force
             Write-Host "  => Installer .exe packaged: ${ExeOutputName}" -ForegroundColor Green
         } else {
-            Write-Warning "NSIS installer .exe not found in build directory. Skipping .exe publishing."
+            throw "NSIS installer .exe was not found after packaging. Refusing to publish a ZIP-only Windows build."
         }
     } else {
         Write-Host "  => Installer packaging disabled. ZIP artifact only." -ForegroundColor Yellow
