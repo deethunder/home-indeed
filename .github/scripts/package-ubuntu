@@ -160,6 +160,20 @@ ${_usage_host:-}"
     pushd ${project_root}
     cmake --build build_${target##*-} --config ${config} -t package ${cmake_args}
     popd
+
+    local output_name="${product_name}-${product_version}-${target##*-}-linux-gnu"
+    local -a deb_packages=(${project_root}/release/${product_name}-${product_version}*.deb(N.))
+    if (( ${#deb_packages} == 0 )) {
+      log_error "No Debian package was created in ${project_root}/release."
+      return 2
+    }
+
+    mv -f ${deb_packages[1]} ${project_root}/release/${output_name}.deb
+
+    local -a zip_packages=(${project_root}/release/${product_name}-${product_version}*.zip(N.))
+    if (( ${#zip_packages} > 0 )) {
+      mv -f ${zip_packages[1]} ${project_root}/release/${output_name}.zip
+    }
   } else {
     log_group "Archiving ${product_name}..."
     local output_name="${product_name}-${product_version}-${target##*-}-ubuntu-gnu"

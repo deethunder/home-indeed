@@ -213,12 +213,22 @@ set(CPACK_PACKAGE_VENDOR "Home Indeed Team")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "AI-powered Bible & Lyrics for OBS")
 set(CPACK_PACKAGE_VERSION ${_version})
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_SOURCE_DIR}/INSTALL.md")
+
+install(
+  FILES "${CMAKE_SOURCE_DIR}/INSTALL.md"
+  DESTINATION "doc/${CMAKE_PROJECT_NAME}"
+)
 
 if(WIN32)
   set(CPACK_GENERATOR "NSIS;ZIP")
   set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
   set(CPACK_PACKAGE_INSTALL_DIRECTORY "obs-studio")
-  set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/installer-logo.ico")
+  if(EXISTS "${CMAKE_SOURCE_DIR}/installer-logo.ico")
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/installer-logo.ico")
+  else()
+    message(WARNING "installer-logo.ico was not found; NSIS will use its default installer icon.")
+  endif()
   set(CPACK_NSIS_PACKAGE_NAME "Home Indeed OBS Plugin")
   set(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}-${_version}-windows-x64-Installer")
   set(CPACK_NSIS_MODIFY_PATH OFF)

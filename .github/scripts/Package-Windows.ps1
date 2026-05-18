@@ -72,7 +72,20 @@ function Package {
     if ($Package) {
         Log-Group "Building NSIS installer..."
         $BuildDir = "${ProjectRoot}/build_${Target}"
-        Invoke-External cmake --build $BuildDir --config $Configuration --target package
+        try {
+            Invoke-External cmake --build $BuildDir --config $Configuration --target package
+        } catch {
+            $NsisLog = Get-ChildItem -Path "${BuildDir}/_CPack_Packages" -Recurse -Filter "NSISOutput.log" -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+
+            if ($NsisLog) {
+                Log-Group "NSIS output log"
+                Get-Content -Path $NsisLog.FullName
+            }
+
+            throw
+        }
 
         Log-Group "Publishing installer .exe..."
         $InstallerExe = Get-ChildItem -Path $BuildDir -Recurse -Filter "${ProductName}-${ProductVersion}-windows-${Target}*.exe" -ErrorAction SilentlyContinue |
@@ -84,7 +97,7 @@ function Package {
             Copy-Item -Path $InstallerExe.FullName -Destination "${ProjectRoot}/release/${ExeOutputName}" -Force
             Write-Host "  => Installer .exe packaged: ${ExeOutputName}" -ForegroundColor Green
         } else {
-            Write-Warning "NSIS installer .exe not found in build directory. Skipping .exe publishing."
+            throw "NSIS installer .exe was not found after packaging. Refusing to publish a ZIP-only Windows build."
         }
     } else {
         Write-Host "  => Installer packaging disabled. ZIP artifact only." -ForegroundColor Yellow
