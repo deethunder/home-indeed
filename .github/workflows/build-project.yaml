@@ -33,11 +33,10 @@ jobs:
 
           case "${GITHUB_EVENT_NAME}" in
             pull_request)
-              config_data=('codesign:false' 'notarize:false' 'package:false' 'config:RelWithDebInfo')
+              config_data=('codesign:false' 'notarize:false' 'package:true' 'config:RelWithDebInfo')
               if gh pr view ${{ github.event.number }} --json labels \
                 | jq -e -r '.labels[] | select(.name == "Seeking Testers")' > /dev/null; then
                 config_data[0]='codesign:true'
-                config_data[2]='package:true'
               fi
               ;;
             push)
@@ -164,6 +163,7 @@ jobs:
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-macos-universal.*
+          if-no-files-found: error
 
       - name: Upload Debug Symbol Artifacts 🪲
         uses: actions/upload-artifact@v4
@@ -231,12 +231,14 @@ jobs:
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-sources-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-source.*
+          if-no-files-found: error
 
       - name: Upload Artifacts 📡
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-${{ matrix.os }}-x86_64-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-x86_64*.*
+          if-no-files-found: error
 
       - name: Upload debug symbol artifacts 🪲
         uses: actions/upload-artifact@v4
@@ -317,3 +319,4 @@ jobs:
         with:
           name: ${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64-${{ needs.check-event.outputs.commitHash }}
           path: ${{ github.workspace }}/release/${{ steps.setup.outputs.pluginName }}-${{ steps.setup.outputs.pluginVersion }}-windows-x64*.*
+          if-no-files-found: error

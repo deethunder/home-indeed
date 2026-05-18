@@ -1,4 +1,8 @@
 make_directory("$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/package/Library/Application Support/obs-studio/plugins")
+make_directory("$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/package/Library/Application Support/obs-studio/plugins/doc/@CMAKE_PROJECT_NAME@")
+
+file(INSTALL DESTINATION "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/package/Library/Application Support/obs-studio/plugins/doc/@CMAKE_PROJECT_NAME@"
+  TYPE FILE FILES "@CMAKE_SOURCE_DIR@/INSTALL.md")
 
 if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/@CMAKE_PROJECT_NAME@.plugin" AND NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/@CMAKE_PROJECT_NAME@.plugin")
   file(INSTALL DESTINATION "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/package/Library/Application Support/obs-studio/plugins"
