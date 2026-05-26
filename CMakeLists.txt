@@ -14,7 +14,7 @@ set(CMAKE_COMPILE_WARNING_AS_ERROR OFF CACHE BOOL "Force Disable Warnings as Err
 set(CMAKE_XCODE_ATTRIBUTE_CLANG_ENABLE_EXPLICIT_MODULES "NO")
 
 if(APPLE)
-    add_compile_options(-Wno-error -Wno-shorten-64-to-32)
+    add_compile_options(-Wno-error -Wno-shorten-64-to-32 -Wno-ambiguous-macro)
 elseif(UNIX AND NOT APPLE)
     add_compile_options(-Wno-error)
 endif()
