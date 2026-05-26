@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Sitemap for production site
+Sitemap: https://homeindeed.netlify.app/sitemap.xml
