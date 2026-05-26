@@ -1,62 +1,51 @@
-# 🕊️ Home Indeed OBS Plugin (HI)
+# Home Indeed OBS Plugin
 
-**Real-time AI-powered Bible Verse & Song Lyrics Overlay for OBS Studio.**
+Home Indeed is a native C++ OBS plugin for church media teams. It keeps scripture, lyrics, and live audio workflows inside OBS Studio instead of splitting the service across separate tools.
 
-Home Indeed is a native C++ plugin designed for church media teams. It uses high-performance AI (Whisper.cpp) to "listen" to your live audio and automatically suggests relevant Bible verses or searches for worship song lyrics in real-time.
+Website: https://homeindeed.netlify.app/
+Releases: https://github.com/DeeThunder/Home-Indeed/releases
 
----
+## What it does
 
-## ✨ Features
+- Real-time transcription with Deepgram-backed flows
+- Bible reference detection and scripture lookup
+- Lyrics detection and queueing for live services
+- A docked OBS interface for transcript, Bible, lyrics, queue, and settings views
+- Audio tap and live meter support for checking whether OBS is hearing the source correctly
 
-*   **🎙️ Real-time Transcription**: Powered by a local Whisper.cpp engine.
-*   **📖 Smart Bible Detection**: Automatically detects references like *"John 3:16"* and suggests text instantly.
-*   **🔊 Live Audio Test**: Use the built-in meter in the Settings tab to verify your microphone is picking up sound and transcribing correctly before your service starts.
-*   **🎶 Scripture Queue**: Use the `+` button to build a list of upcoming scriptures for your service.
-*   **⚙️ Professional Settings**: Customizable alignment, full-screen modes, and bible versions via a dedicated settings page.
-*   **📦 One-Click Launcher**: Quick-launch OBS directly from your desktop.
+## Downloads
 
----
+Each release publishes platform packages for:
 
-## 🚀 Quick Start & Audio Setup
+- Windows: `home-indeed-<version>-windows-x64-Installer.exe`
+- macOS: `home-indeed-<version>-macos-universal.pkg`
+- Ubuntu/Linux: `home-indeed-<version>-x86_64-linux-gnu.deb`
+- Ubuntu/Linux fallback archive: `home-indeed-<version>-x86_64-linux-gnu.zip`
 
-### 1. Installation
-1.  Run the `Home-Indeed-Installer.exe`.
-2.  It will create a **Home Indeed** shortcut on your desktop. Double-click it to launch OBS.
+## Install
 
-### 2. Step-by-Step Audio Activation (CRITICAL)
-For the plugin to "hear" anything, you must tap an audio source:
-1.  Add your audio source (Mic, HDMI Capture, etc.) to your OBS Scene.
-2.  In the **Audio Mixer**, click the **Gear (⚙️)** or **three dots** next to your source.
-3.  Select **Filters**.
-4.  Click **+** -> **Home Indeed Audio Tap**.
-5.  Open the **Home Indeed** dock from the `Docks` menu.
+1. Install OBS Studio first.
+2. Download the package for your platform from the latest release.
+3. Follow the steps in `INSTALL.md` if you want the full platform-specific install flow.
+4. Restart OBS Studio after installation.
 
----
+### Windows
 
-## ⚓ The Control Dock
+Run the NSIS `.exe` installer.
 
-### ⌨️ Bottom Toolbar
-*   **`+` (Add)**: Adds the currently detected verse or lyric to your **Queue**.
-*   **`🗑️` (Discard)**: Removes the selected item from your Queue.
-*   **`⚙️` (Settings)**: Opens the settings page for alignment and audio help.
-*   **`▲` / `▼`**: Navigates through your queued items.
+### macOS
 
-### 📖 Usage
-*   **Queue**: Double-click any item in the `Queue` tab to push it to the live overlay.
-*   **Bible**: Speak a reference while using the Audio Tap. Click `+` to queue it or `Push` to show it immediately.
+Open the `.pkg` installer. If macOS warns about unsigned software, approve the package in Privacy & Security.
 
----
+### Ubuntu / Linux
 
-## 🛡️ Trust & Security
+Install the `.deb` package with:
 
-### Malware-Free Guarantee
-We guarantee that the Home Indeed OBS Plugin is free of any malware. Source code is public for audit.
+```bash
+sudo apt install ./home-indeed-<version>-x86_64-linux-gnu.deb
+```
 
-### Authenticity
-Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+If you prefer an archive instead of a package manager install, use the `.zip` fallback from the release page.
 
----
-
-## 📄 License
-
-This project is licensed under the **GPL v2.0 License** - see the [LICENSE](LICENSE) file for details.
+## License
+GPL v2.0. See [LICENSE](LICENSE).

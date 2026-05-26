@@ -14,7 +14,10 @@ set(CMAKE_COMPILE_WARNING_AS_ERROR OFF CACHE BOOL "Force Disable Warnings as Err
 set(CMAKE_XCODE_ATTRIBUTE_CLANG_ENABLE_EXPLICIT_MODULES "NO")
 
 if(APPLE)
-    add_compile_options(-Wno-error -Wno-shorten-64-to-32)
+    add_compile_options(-Wno-error -Wno-shorten-64-to-32 -Wno-ambiguous-macro)
+    set_source_files_properties(
+        vendor/sqlite3/sqlite3.c
+        PROPERTIES COMPILE_OPTIONS "-Wno-unreachable-code")
 elseif(UNIX AND NOT APPLE)
     add_compile_options(-Wno-error)
 endif()
@@ -74,6 +77,12 @@ endif()
 set(WHISPER_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
 set(GGML_METAL OFF CACHE BOOL "Force disable Metal to fix Apple ARC errors" FORCE)
 add_subdirectory(vendor/whisper.cpp)
+
+if(APPLE AND TARGET whisper)
+  target_compile_options(
+    whisper
+    PRIVATE -Wno-unguarded-availability-new)
+endif()
 
 # ==========================================================
 # Vosk API (cross-platform pre-built binaries)
