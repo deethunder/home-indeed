@@ -1,184 +1,157 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Home Indeed | AI-Powered OBS Plugin for Churches</title>
-    <style>
-        :root {
-            --bg-color: #0f172a;
-            --card-bg: #1e293b;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent: #3b82f6;
-            --accent-hover: #2563eb;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        }
-
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            line-height: 1.6;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-        }
-
-        .container {
-            max-width: 900px;
-            width: 100%;
-            padding: 4rem 2rem;
-            text-align: center;
-        }
-
-        .badge {
-            display: inline-block;
-            background: rgba(59, 130, 246, 0.2);
-            color: #60a5fa;
-            padding: 0.5rem 1rem;
-            border-radius: 50px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            margin-bottom: 2rem;
-            letter-spacing: 0.5px;
-        }
-
-        h1 {
-            font-size: 3.5rem;
-            font-weight: 800;
-            margin-bottom: 1rem;
-            line-height: 1.1;
-        }
-
-        .gradient-text {
-            background: linear-gradient(to right, #60a5fa, #a78bfa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        p.subtitle {
-            font-size: 1.25rem;
-            color: var(--text-muted);
-            max-width: 600px;
-            margin: 0 auto 3rem auto;
-        }
-
-        .waitlist-form {
-            display: flex;
-            gap: 0.5rem;
-            max-width: 500px;
-            margin: 0 auto 4rem auto;
-        }
-
-        .waitlist-form input[type="email"] {
-            flex: 1;
-            padding: 1rem 1.5rem;
-            border-radius: 8px;
-            border: 1px solid #334155;
-            background: var(--card-bg);
-            color: white;
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-
-        .waitlist-form input[type="email"]:focus {
-            border-color: var(--accent);
-        }
-
-        .waitlist-form button {
-            padding: 1rem 2rem;
-            border-radius: 8px;
-            border: none;
-            background: var(--accent);
-            color: white;
-            font-size: 1rem;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .waitlist-form button:hover {
-            background: var(--accent-hover);
-        }
-
-        .features {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 2rem;
-            text-align: left;
-            margin-top: 2rem;
-        }
-
-        .feature-card {
-            background: var(--card-bg);
-            padding: 2rem;
-            border-radius: 12px;
-            border: 1px solid #334155;
-        }
-
-        .feature-card h3 {
-            font-size: 1.25rem;
-            margin-bottom: 0.5rem;
-            color: #e2e8f0;
-        }
-
-        .feature-card p {
-            color: var(--text-muted);
-            font-size: 0.95rem;
-        }
-
-        @media (max-width: 600px) {
-            h1 { font-size: 2.5rem; }
-            .waitlist-form { flex-direction: column; }
-            .waitlist-form button { width: 100%; }
-        }
-    </style>
-</head>
-<body>
-
-    <div class="container">
-        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 1.5rem;">
-            <img src="assets/hi-logo.png" alt="Home Indeed Logo" style="width: 60px; height: auto; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));">
-            <span style="font-size: 2rem; font-weight: 800; letter-spacing: -0.5px;">Home Indeed</span>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Home Indeed is an OBS plugin for churches. Download the launch build and preview the app in OBS."
+    />
+    <title>Home Indeed</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <a class="brand" href="#top" aria-label="Home Indeed home">
+            <img src="assets/hi-logo.png" alt="Home Indeed logo" />
+            <span class="brand-mark">
+              <strong>Home Indeed</strong>
+            </span>
+          </a>
         </div>
-        <br>
-        <div class="badge">🚀 IN ACTIVE DEVELOPMENT</div>
-        
-        <h1>The Ultimate AI-Powered <br><span class="gradient-text">OBS Plugin for Churches</span></h1>
-        
-        <p class="subtitle">
-            Flawless, offline, voice-activated scripture and lyric projection. 
-            Join the waitlist to get early access to <strong>Home Indeed</strong> when we launch.
-        </p>
+      </header>
 
-        <form class="waitlist-form" name="waitlist" method="POST" data-netlify="true">
-            <input type="email" name="email" placeholder="Enter your email address..." required>
-            <button type="submit">Join Waitlist</button>
-        </form>
+      <main id="top">
+        <section class="hero">
+          <div class="container hero-grid">
+            <div>
+              <div class="eyebrow">Windows &middot; macOS &middot; Linux</div>
+              <h1>Home Indeed for OBS Studio.</h1>
+              <p class="hero-copy">
+                A church-focused OBS plugin that keeps sermon visuals,
+                scripture, and lyrics in the same workflow. Download the launch
+                build, then swap in your own website visuals as the release
+                grows.
+              </p>
+              <div class="hero-actions">
+                <a class="btn btn-primary" href="#downloads">
+                  Download Plugin
+                </a>
+              </div>
+              <div class="hero-meta">
+                <div class="meta-card">
+                  <strong>OBS ready</strong>
+                  <span>Built to live inside the broadcaster workflow.</span>
+                </div>
+                <div class="meta-card">
+                  <strong>Simple launch</strong>
+                  <span>No extra signup path, just the launch.</span>
+                </div>
+              </div>
+            </div>
 
-        <div class="features">
-            <div class="feature-card">
-                <h3>🎙️ Local AI Detection</h3>
-                <p>Powered by highly optimized Whisper models. Catch scriptures fast and accurately with zero internet connection required.</p>
+            <div class="launch-art" aria-label="Hero image slot">
+              <div class="laptop-frame">
+                <div class="laptop-shell">
+                  <div class="laptop-screen">
+                      <img
+                          src="assets/Plugin screenshot.png"
+                          alt="Placeholder for OBS Studio screenshot"
+                        />
+                  </div>
+                </div>
+                <div class="laptop-base" aria-hidden="true"></div>
+              </div>
             </div>
-            <div class="feature-card">
-                <h3>🎶 Auto-Lyrics Engine</h3>
-                <p>Never fall behind the worship team. The AI detects what is being sung and automatically queues the correct lyrics on screen.</p>
+          </div>
+        </section>
+
+        <section class="section" id="downloads">
+          <div class="container">
+            <div class="section-head">
+              <div class="section-kicker">Downloads</div>
+              <h2 class="section-title">Platform Builds</h2>
+              <p class="section-lead">
+                Click the buttons below to download the latest launch build for
+                your platform.
+              </p>
             </div>
-            <div class="feature-card">
-                <h3>⚡ Seamless OBS Integration</h3>
-                <p>A native C++ and Qt architecture. It lives right inside OBS Studio, tapping into your audio with zero latency or external apps.</p>
+
+            <div class="platform-grid">
+              <article class="platform-card">
+                <div class="platform-art">
+                  <div class="platform-icon platform-icon-windows" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img" aria-label="Windows logo">
+                      <path d="M3 5.5 10 4.5v7H3V5.5Zm8-1.2L21 3v8.5H11V4.3ZM3 12.5h7V20l-7-1v-6.5Zm8 0h10V21l-10-1.5v-7Z" fill="currentColor" />
+                    </svg>
+                  </div>
+                  <strong>Windows build</strong>
+                  <span>Native installer for the desktop release.</span>
+                </div>
+                <a
+                  class="btn btn-primary"
+                  href="https://github.com/DeeThunder/Home-Indeed/releases/latest"
+                  >Download for Windows</a
+                >
+              </article>
+
+              <article class="platform-card">
+                <div class="platform-art">
+                  <div class="platform-icon platform-icon-macos" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img" aria-label="Apple logo">
+                      <path d="M16.4 13.2c0-2 1.6-3 1.7-3.1-.9-1.3-2.3-1.5-2.8-1.6-1.2-.1-2.3.7-2.9.7-.6 0-1.5-.7-2.5-.7-1.3 0-2.5.8-3.2 2-1.4 2.4-.4 5.9 1 7.8.7.9 1.5 1.9 2.6 1.8 1 0 1.4-.6 2.6-.6 1.1 0 1.4.6 2.6.6 1.1 0 1.8-.9 2.5-1.8.8-1.1 1.1-2.2 1.1-2.3 0-.1-2.1-.8-2.1-2.8Zm-2.3-6.2c.5-.7.9-1.6.8-2.6-.8 0-1.7.5-2.2 1.2-.5.6-1 1.5-.9 2.4.9.1 1.7-.4 2.3-1Z" fill="currentColor" />
+                    </svg>
+                  </div>
+                  <strong>macOS build</strong>
+                  <span>Native package for Apple desktops and laptops.</span>
+                </div>
+                <a
+                  class="btn btn-primary"
+                  href="https://github.com/DeeThunder/Home-Indeed/releases/latest"
+                  >Download for macOS</a
+                >
+              </article>
+
+              <article class="platform-card">
+                <div class="platform-art">
+                  <div class="platform-icon platform-icon-linux" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img" aria-label="Linux logo">
+                      <path d="M12 3c-2.7 0-4.8 2.1-4.8 4.8 0 .8.2 1.5.5 2.2-.8 1-1.2 2.1-1.2 3.3 0 2.3 1.5 4 3.5 5.1.5.3.8.8.8 1.4 0 .7-.4 1.3-1 1.7 1.4.4 2.7.6 4.2.6s2.9-.2 4.2-.6c-.6-.4-1-.9-1-1.7 0-.6.3-1.1.8-1.4 2-1.1 3.5-2.8 3.5-5.1 0-1.2-.4-2.3-1.2-3.3.3-.7.5-1.4.5-2.2C16.8 5.1 14.7 3 12 3Z" fill="currentColor" />
+                      <circle cx="9.2" cy="9.1" r="0.8" fill="#050b14" />
+                      <circle cx="14.8" cy="9.1" r="0.8" fill="#050b14" />
+                    </svg>
+                  </div>
+                  <strong>Linux build</strong>
+                  <span>DEB and archive downloads for Linux users.</span>
+                </div>
+                <a
+                  class="btn btn-primary"
+                  href="https://github.com/DeeThunder/Home-Indeed/releases/latest"
+                  >Download for Linux</a
+                >
+              </article>
             </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div class="container footer-inner">
+          <div>
+            <strong
+              style="display: block; color: var(--text); margin-bottom: 0.2rem"
+              >Home Indeed</strong
+            >
+            <span>Built for OBS Studio and church production teams.</span>
+          </div>
+          <div class="footer-links">
+            <a href="https://github.com/DeeThunder/Home-Indeed">GitHub</a>
+            <a href="mailto:info@deethundernexus.org">Support</a>
+          </div>
         </div>
+      </footer>
     </div>
-
-</body>
+  </body>
 </html>
