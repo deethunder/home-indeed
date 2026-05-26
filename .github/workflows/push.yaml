@@ -53,6 +53,12 @@ jobs:
             echo "::notice::Tag '${GITHUB_REF_NAME}' is not a release tag. Expected 1.0.0, v1.0.0, 1.0.0-beta1, or v1.0.0-beta1."
           fi
 
+      - name: Check Out Repository 📥
+        uses: actions/checkout@v6
+        if: fromJSON(steps.check.outputs.validTag)
+        with:
+          fetch-depth: 0
+
       - name: Download Build Artifacts 📥
         uses: actions/download-artifact@v5
         if: fromJSON(steps.check.outputs.validTag)
@@ -69,6 +75,7 @@ jobs:
           shopt -s nullglob
 
           release_files=(
+            "${{ github.workspace }}/INSTALL.md"
             "${{ github.workspace }}"/*.exe
             "${{ github.workspace }}"/*.zip
             "${{ github.workspace }}"/*.pkg
